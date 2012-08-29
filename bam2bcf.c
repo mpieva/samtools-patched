@@ -23,7 +23,7 @@ bcf_callaux_t *bcf_call_init(double theta, int min_baseQ)
 	bca->capQ = 60;
 	bca->openQ = 40; bca->extQ = 20; bca->tandemQ = 100;
 	bca->min_baseQ = min_baseQ;
-	bca->e = errmod_init(1. - theta);
+	bca->e = errmod_init(1. - theta, 2);
 	bca->min_frac = 0.002;
 	bca->min_support = 1;
 	return bca;

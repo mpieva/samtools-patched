@@ -158,11 +158,21 @@ static void group_smpl(mplp_pileup_t *m, bam_sample_t *sm, kstring_t *buf,
 			uint8_t *q;
 			int id = -1;
 			q = ignore_rg? 0 : bam_aux_get(p->b, "RG");
-			if (q) id = bam_smpl_rg2smid(sm, fn[i], (char*)q+1, buf);
+			if (q) {
+                if(*q=='Z'||*q=='H') id = bam_smpl_rg2smid(sm, fn[i], (char*)q+1, buf);
+                else if(*q=='A'||*q=='c'||*q=='C') {
+                    char t[2];
+                    t[0]=q[1];
+                    t[1]=0;
+                    id = bam_smpl_rg2smid(sm, fn[i], t, buf);
+                }
+            }
 			if (id < 0) id = bam_smpl_rg2smid(sm, fn[i], 0, buf);
 			if (id < 0 || id >= m->n) {
-				assert(q); // otherwise a bug
-				fprintf(stderr, "[%s] Read group %s used in file %s but absent from the header or an alignment missing read group.\n", __func__, (char*)q+1, fn[i]);
+				if (q)
+                    fprintf(stderr, "[%s] Read group %s used in file %s but absent from the header.\n", __func__, (char*)q+1, fn[i]);
+                else
+                    fprintf(stderr, "[%s] Alignment missing read group in file %s.\n", __func__, fn[i]);
 				exit(1);
 			}
 			if (m->n_plp[id] == m->m_plp[id]) {

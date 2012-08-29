@@ -570,7 +570,7 @@ int main_phase(int argc, char *argv[])
 	iter = bam_plp_init(readaln, &g);
 	g.vpos_shift = 0;
 	seqs = kh_init(64);
-	em = errmod_init(1. - 0.83);
+	em = errmod_init(1. - 0.83,2);
 	bases = calloc(g.max_depth, 2);
 	printf("CC\n");
 	printf("CC\tDescriptions:\nCC\n");

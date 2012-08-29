@@ -60,6 +60,7 @@ unsigned short bam_char2flag_table[256] = {
 };
 
 char *bam_nt16_rev_table = "=ACMGRSVTWYHKDBN";
+char *bam_nt16_revcom_table = "=TGKCYSBAWRDMHVN";
 
 struct __tamFile_t {
 	gzFile fp;
@@ -164,7 +165,7 @@ static inline uint8_t *alloc_data(bam1_t *b, int size)
 static inline void parse_error(int64_t n_lines, const char * __restrict msg)
 {
 	fprintf(stderr, "Parse error at line %lld: %s\n", (long long)n_lines, msg);
-	abort();
+	// abort(); // XXX turn this into an option?
 }
 static inline void append_text(bam_header_t *header, kstring_t *str)
 {
@@ -236,6 +237,8 @@ bam_header_t *sam_header_read(tamFile fp)
 
 int sam_read1(tamFile fp, bam_header_t *header, bam1_t *b)
 {
+	for(;;) // try until EOF or succesful parse
+	{
 	int ret, doff, doff0, dret, z = 0;
 	bam1_core_t *c = &b->core;
 	kstring_t *str = fp->str;
@@ -275,8 +278,9 @@ int sam_read1(tamFile fp, bam_header_t *header, bam1_t *b)
 		ret = ks_getuntil(ks, KS_SEP_TAB, str, &dret); z += str->l + 1; c->tid = bam_get_tid(header, str->s);
 		if (c->tid < 0 && strcmp(str->s, "*")) {
 			if (header->n_targets == 0) {
-				fprintf(stderr, "[sam_read1] missing header? Abort!\n");
-				exit(1);
+				parse_error(fp->n_lines, "missing header? Abort!");
+				ks_getuntil(fp->ks, '\n', str, &dret);
+				continue ;
 			} else fprintf(stderr, "[sam_read1] reference '%s' is recognized as '*'.\n", str->s);
 		}
 		ret = ks_getuntil(ks, KS_SEP_TAB, str, &dret); z += str->l + 1; c->pos = isdigit(str->s[0])? atoi(str->s) - 1 : -1;
@@ -291,10 +295,18 @@ int sam_read1(tamFile fp, bam_header_t *header, bam1_t *b)
 		if (ks_getuntil(ks, KS_SEP_TAB, str, &dret) < 0) return -3;
 		z += str->l + 1;
 		if (str->s[0] != '*') {
+			int invalid = 0 ;
 			for (s = str->s; *s; ++s) {
 				if ((isalpha(*s)) || (*s=='=')) ++c->n_cigar;
-				else if (!isdigit(*s)) parse_error(fp->n_lines, "invalid CIGAR character");
+				else if (!isdigit(*s)) invalid=1 ;
 			}
+			if( invalid ) {
+				parse_error(fp->n_lines, "invalid CIGAR character");
+				ks_getuntil(fp->ks, '\n', str, &dret);
+				continue;
+			}
+			invalid=0;
+
 			b->data = alloc_data(b, doff + c->n_cigar * 4);
 			for (i = 0, s = str->s; i != c->n_cigar; ++i) {
 				x = strtol(s, &t, 10);
@@ -308,11 +320,16 @@ int sam_read1(tamFile fp, bam_header_t *header, bam1_t *b)
 				else if (op == 'P') op = BAM_CPAD;
 				else if (op == '=') op = BAM_CEQUAL;
 				else if (op == 'X') op = BAM_CDIFF;
-				else parse_error(fp->n_lines, "invalid CIGAR operation");
+				else invalid=1 ;
 				s = t + 1;
 				bam1_cigar(b)[i] = x << BAM_CIGAR_SHIFT | op;
 			}
-			if (*s) parse_error(fp->n_lines, "unmatched CIGAR operation");
+			if( invalid || *s ) {
+				if( invalid ) parse_error(fp->n_lines, "invalid CIGAR operation");
+				else parse_error(fp->n_lines, "unmatched CIGAR operation");
+				ks_getuntil(fp->ks, '\n', str, &dret);
+				continue ;
+			}
 			c->bin = bam_reg2bin(c->pos, bam_calend(c, bam1_cigar(b)));
 			doff += c->n_cigar * 4;
 		} else {
@@ -343,6 +360,8 @@ int sam_read1(tamFile fp, bam_header_t *header, bam1_t *b)
 			  fprintf(stderr, "Line %ld, sequence length %i vs %i from CIGAR\n",
 				  (long)fp->n_lines, c->l_qseq, (int32_t)bam_cigar2qlen(c, bam1_cigar(b)));
 			  parse_error(fp->n_lines, "CIGAR and sequence length are inconsistent");
+				ks_getuntil(fp->ks, '\n', str, &dret);
+				continue;
 			}
 			p = (uint8_t*)alloc_data(b, doff + c->l_qseq + (c->l_qseq+1)/2) + doff;
 			memset(p, 0, (c->l_qseq+1)/2);
@@ -351,8 +370,11 @@ int sam_read1(tamFile fp, bam_header_t *header, bam1_t *b)
 		} else c->l_qseq = 0;
 		if (ks_getuntil(ks, KS_SEP_TAB, str, &dret) < 0) return -6; // qual
 		z += str->l + 1;
-		if (strcmp(str->s, "*") && c->l_qseq != strlen(str->s))
+		if (strcmp(str->s, "*") && c->l_qseq != strlen(str->s)) {
 			parse_error(fp->n_lines, "sequence and quality are inconsistent");
+			ks_getuntil(fp->ks, '\n', str, &dret);
+			continue;
+		}
 		p += (c->l_qseq+1)/2;
 		if (strcmp(str->s, "*") == 0) for (i = 0; i < c->l_qseq; ++i) p[i] = 0xff;
 		else for (i = 0; i < c->l_qseq; ++i) p[i] = str->s[i] - 33;
@@ -360,11 +382,15 @@ int sam_read1(tamFile fp, bam_header_t *header, bam1_t *b)
 	}
 	doff0 = doff;
 	if (dret != '\n' && dret != '\r') { // aux
+		int invalid=0;
 		while (ks_getuntil(ks, KS_SEP_TAB, str, &dret) >= 0) {
 			uint8_t *s, type, key[2];
 			z += str->l + 1;
-			if (str->l < 6 || str->s[2] != ':' || str->s[4] != ':')
+			if (str->l < 6 || str->s[2] != ':' || str->s[4] != ':') {
 				parse_error(fp->n_lines, "missing colon in auxiliary data");
+				ks_getuntil(fp->ks, '\n', str, &dret);
+				invalid=1 ;
+			}
 			key[0] = str->s[0]; key[1] = str->s[1];
 			type = str->s[3];
 			s = alloc_data(b, doff + 3) + doff;
@@ -420,11 +446,18 @@ int sam_read1(tamFile fp, bam_header_t *header, bam1_t *b)
 				int size = 1 + (str->l - 5) + 1;
 				if (type == 'H') { // check whether the hex string is valid
 					int i;
-					if ((str->l - 5) % 2 == 1) parse_error(fp->n_lines, "length of the hex string not even");
+					if ((str->l - 5) % 2 == 1) {
+						parse_error(fp->n_lines, "length of the hex string not even");
+						ks_getuntil(fp->ks, '\n', str, &dret);
+						invalid=1;
+					}
 					for (i = 0; i < str->l - 5; ++i) {
 						int c = toupper(str->s[5 + i]);
-						if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F')))
+						if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'))) {
 							parse_error(fp->n_lines, "invalid hex character");
+							ks_getuntil(fp->ks, '\n', str, &dret);
+							invalid=1 ;
+						}
 					}
 				}
 				s = alloc_data(b, doff + size) + doff;
@@ -453,13 +486,19 @@ int sam_read1(tamFile fp, bam_header_t *header, bam1_t *b)
 				else if (str->s[5] == 'f') while (p < str->s + str->l) ((float*)s)[k++]    = (float)strtod(p, &p),       ++p;
 				else parse_error(fp->n_lines, "unrecognized array type");
 				s += Bsize * n; doff += size;
-			} else parse_error(fp->n_lines, "unrecognized type");
+			} else {
+				parse_error(fp->n_lines, "unrecognized type");
+				ks_getuntil(fp->ks, '\n', str, &dret);
+				invalid=1 ;
+			}
 			if (dret == '\n' || dret == '\r') break;
 		}
+		if( invalid ) continue ;
 	}
 	b->l_aux = doff - doff0;
 	b->data_len = doff;
 	return z;
+	}
 }
 
 tamFile sam_open(const char *fn)

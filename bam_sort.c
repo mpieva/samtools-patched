@@ -9,9 +9,15 @@
 #include "ksort.h"
 
 static int g_is_by_qname = 0;
+static int g_ignore_warts = 0;
 
 static inline int strnum_cmp(const char *a, const char *b)
 {
+    if( g_ignore_warts ) {
+        while( (a[0] == 'M' || a[0] == 'F' || a[0] == 'R' || a[0] == 'C') && a[1] == '_' ) a+=2 ;
+        while( (b[0] == 'M' || b[0] == 'F' || b[0] == 'R' || b[0] == 'C') && b[1] == '_' ) b+=2 ;
+    }
+
 	char *pa, *pb;
 	pa = (char*)a; pb = (char*)b;
 	while (*pa && *pb) {
@@ -39,6 +45,7 @@ typedef struct {
 } heap1_t;
 
 #define __pos_cmp(a, b) ((a).pos > (b).pos || ((a).pos == (b).pos && ((a).i > (b).i || ((a).i == (b).i && (a).idx > (b).idx))))
+#define __flag_cmp(a,b) ( ((a).flags & (...)) > ((b).flags & (...)))
 
 static inline int heap_lt(const heap1_t a, const heap1_t b)
 {
@@ -46,7 +53,11 @@ static inline int heap_lt(const heap1_t a, const heap1_t b)
 		int t;
 		if (a.b == 0 || b.b == 0) return a.b == 0? 1 : 0;
 		t = strnum_cmp(bam1_qname(a.b), bam1_qname(b.b));
-		return (t > 0 || (t == 0 && __pos_cmp(a, b)));
+        return t > 0 ? 1 :
+               t < 0 ? 0 :
+               (a.b->core.flag & BAM_FPAIRED) < (b.b->core.flag & BAM_FPAIRED) ? 1 :
+               (a.b->core.flag & BAM_FPAIRED) > (b.b->core.flag & BAM_FPAIRED) ? 0 :
+               (a.b->core.flag & (BAM_FREAD1|BAM_FREAD2)) > (b.b->core.flag & (BAM_FREAD1|BAM_FREAD2)) ;
 	} else return __pos_cmp(a, b);
 }
 
@@ -255,9 +266,9 @@ int bam_merge_core(int by_qname, const char *out, const char *headers, int n, ch
 int bam_merge(int argc, char *argv[])
 {
 	int c, is_by_qname = 0, flag = 0, ret = 0;
-	char *fn_headers = NULL, *reg = 0;
+	char *fn_headers = NULL, *reg = 0, *oname = "-";
 
-	while ((c = getopt(argc, argv, "h:nru1R:f")) >= 0) {
+	while ((c = getopt(argc, argv, "h:nru1R:fo:")) >= 0) {
 		switch (c) {
 		case 'r': flag |= MERGE_RG; break;
 		case 'f': flag |= MERGE_FORCE; break;
@@ -266,14 +277,16 @@ int bam_merge(int argc, char *argv[])
 		case '1': flag |= MERGE_LEVEL1; break;
 		case 'u': flag |= MERGE_UNCOMP; break;
 		case 'R': reg = strdup(optarg); break;
+        case 'o': oname = optarg; break;
 		}
 	}
-	if (optind + 2 >= argc) {
+	if (optind >= argc) {
 		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage:   samtools merge [-nr] [-h inh.sam] <out.bam> <in1.bam> <in2.bam> [...]\n\n");
+		fprintf(stderr, "Usage:   samtools merge [-nru] [-o out.bam] [-h inh.sam] <in1.bam> <in2.bam> [...]\n\n");
 		fprintf(stderr, "Options: -n       sort by read names\n");
 		fprintf(stderr, "         -r       attach RG tag (inferred from file names)\n");
 		fprintf(stderr, "         -u       uncompressed BAM output\n");
+		fprintf(stderr, "         -o FILE  write to FILE [stdout]\n");
 		fprintf(stderr, "         -f       overwrite the output BAM if exist\n");
 		fprintf(stderr, "         -1       compress level 1\n");
 		fprintf(stderr, "         -R STR   merge file in the specified region STR [all]\n");
@@ -283,15 +296,11 @@ int bam_merge(int argc, char *argv[])
 		fprintf(stderr, "      the header dictionary in merging.\n\n");
 		return 1;
 	}
-	if (!(flag & MERGE_FORCE) && strcmp(argv[optind], "-")) {
-		FILE *fp = fopen(argv[optind], "rb");
-		if (fp != NULL) {
-			fclose(fp);
-			fprintf(stderr, "[%s] File '%s' exists. Please apply '-f' to overwrite. Abort.\n", __func__, argv[optind]);
-			return 1;
-		}
-	}
-	if (bam_merge_core(is_by_qname, argv[optind], fn_headers, argc - optind - 1, argv + optind + 1, flag, reg) < 0) ret = 1;
+    if (!(flag & MERGE_FORCE) && strcmp(oname, "-") && !access(oname, F_OK)) {
+        fprintf(stderr, "[%s] File '%s' exists. Please apply '-f' to overwrite. Abort.\n", __func__, oname);
+        return 1;
+    }
+	if (bam_merge_core(is_by_qname, oname, fn_headers, argc - optind, argv + optind, flag, reg) < 0) ret = 1;
 	free(reg);
 	free(fn_headers);
 	return ret;
@@ -303,7 +312,11 @@ static inline int bam1_lt(const bam1_p a, const bam1_p b)
 {
 	if (g_is_by_qname) {
 		int t = strnum_cmp(bam1_qname(a), bam1_qname(b));
-		return (t < 0 || (t == 0 && (((uint64_t)a->core.tid<<32|(a->core.pos+1)) < ((uint64_t)b->core.tid<<32|(b->core.pos+1)))));
+        return t > 0 ? 0 :
+               t < 0 ? 1 :
+               (a->core.flag & BAM_FPAIRED) < (b->core.flag & BAM_FPAIRED) ? 0 :
+               (a->core.flag & BAM_FPAIRED) > (b->core.flag & BAM_FPAIRED) ? 1 :
+               (a->core.flag & (BAM_FREAD1|BAM_FREAD2)) < (b->core.flag & (BAM_FREAD1|BAM_FREAD2)) ;
 	} else return (((uint64_t)a->core.tid<<32|(a->core.pos+1)) < ((uint64_t)b->core.tid<<32|(b->core.pos+1)));
 }
 KSORT_INIT(sort, bam1_p, bam1_lt)
@@ -326,8 +339,7 @@ static void sort_blocks(int n, int k, bam1_p *buf, const char *prefix, const bam
 	if (fp == 0) {
 		fprintf(stderr, "[sort_blocks] fail to create file %s.\n", name);
 		free(name);
-		// FIXME: possible memory leak
-		return;
+		exit(1);
 	}
 	free(name);
 	bam_header_write(fp, h);
@@ -422,10 +434,11 @@ int bam_sort(int argc, char *argv[])
 {
 	size_t max_mem = 500000000;
 	int c, is_by_qname = 0, is_stdout = 0;
-	while ((c = getopt(argc, argv, "nom:")) >= 0) {
+	while ((c = getopt(argc, argv, "nowm:")) >= 0) {
 		switch (c) {
 		case 'o': is_stdout = 1; break;
 		case 'n': is_by_qname = 1; break;
+        case 'w': g_ignore_warts = 1; break;                  
 		case 'm': max_mem = atol(optarg); break;
 		}
 	}

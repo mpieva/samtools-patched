@@ -1,8 +1,10 @@
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <math.h>
+#include <ctype.h>
 #include "sam_header.h"
 #include "sam.h"
 #include "faidx.h"
@@ -22,6 +24,7 @@ typedef khash_t(rg) *rghash_t;
 // FIXME: we'd better use no global variables...
 static rghash_t g_rghash = 0;
 static int g_min_mapQ = 0, g_flag_on = 0, g_flag_off = 0;
+static int g_min_length = 0, g_max_length = INT_MAX ;
 static float g_subsam = -1;
 static char *g_library, *g_rg;
 static void *g_bed;
@@ -32,7 +35,17 @@ int bed_overlap(const void *_h, const char *chr, int beg, int end);
 
 static inline int __g_skip_aln(const bam_header_t *h, const bam1_t *b)
 {
-	if (b->core.qual < g_min_mapQ || ((b->core.flag & g_flag_on) != g_flag_on) || (b->core.flag & g_flag_off))
+	int l = (b->core.flag & BAM_FPAIRED) && b->core.isize ? abs(b->core.isize) : b->core.l_qseq ;
+    int flags = b->core.flag ;
+    if( (g_flag_on | g_flag_off) & ~0xffff ) {
+        char *s = bam_aux_get(b, "XF");
+        flags |= bam_aux2i(s) << 16 ;
+    }
+
+	if (b->core.qual < g_min_mapQ ||
+			l < g_min_length || l > g_max_length ||
+			((flags & g_flag_on) != g_flag_on) ||
+			(flags & g_flag_off))
 		return 1;
 	if (g_bed && b->core.tid >= 0 && !bed_overlap(g_bed, h->target_name[b->core.tid], b->core.pos, bam_calend(&b->core, bam1_cigar(b))))
 		return 1;
@@ -44,12 +57,24 @@ static inline int __g_skip_aln(const bam_header_t *h, const bam1_t *b)
 	if (g_rg || g_rghash) {
 		uint8_t *s = bam_aux_get(b, "RG");
 		if (s) {
-			if (g_rg) return (strcmp(g_rg, (char*)(s + 1)) == 0)? 0 : 1;
-			if (g_rghash) {
-				khint_t k = kh_get(rg, g_rghash, (char*)(s + 1));
-				return (k != kh_end(g_rghash))? 0 : 1;
-			}
-		}
+            if (*s=='Z' || *s=='H') {        // two kind of strings
+                if (g_rg) return (strcmp(g_rg, (char*)(s + 1)) == 0)? 0 : 1;
+                if (g_rghash) {
+                    khint_t k = kh_get(rg, g_rghash, (char*)(s + 1));
+                    return (k == kh_end(g_rghash));
+                }
+            } else if (*s=='A' || *s=='c' || *s=='C') {     // single character
+                if (g_rg) return (g_rg[0]!=s[1] || g_rg[1]);
+                if (g_rghash) {
+                    char t[2] ;
+                    t[0]=s[1];
+                    t[1]=0;
+                    khint_t k = kh_get(rg, g_rghash, t);
+                    return (k == kh_end(g_rghash));
+                }
+            }
+        }
+        return 1;
 	}
 	if (g_library) {
 		const char *p = bam_get_library((bam_header_t*)h, b);
@@ -118,7 +143,7 @@ int main_samview(int argc, char *argv[])
 
 	/* parse command-line options */
 	strcpy(in_mode, "r"); strcpy(out_mode, "w");
-	while ((c = getopt(argc, argv, "Sbct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:")) >= 0) {
+	while ((c = getopt(argc, argv, "Sbct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:m:M:Y")) >= 0) {
 		switch (c) {
 		case 's': g_subsam = atof(optarg); break;
 		case 'c': is_count = 1; break;
@@ -128,8 +153,31 @@ int main_samview(int argc, char *argv[])
 		case 'h': is_header = 1; break;
 		case 'H': is_header_only = 1; break;
 		case 'o': fn_out = strdup(optarg); break;
-		case 'f': g_flag_on = strtol(optarg, 0, 0); break;
-		case 'F': g_flag_off = strtol(optarg, 0, 0); break;
+		case 'f': 
+		case 'F': {
+					  extern char *bam_flag2char_table ;
+					  int i, f = 0 ;
+					  char *x ;
+					  if( optarg && isdigit( *optarg ) ) f = strtol(optarg, 0, 0);
+					  else for(;*optarg;++optarg) {
+						  if(*optarg != '_') {
+							  for( x=bam_flag2char_table, i=1 ; *x ; i<<=1, x++ ) {
+								  if( *optarg==*x ) {
+									  f |= i ;
+									  break ;
+								  }
+							  }
+							  if( !*x ) {
+								  fprintf(stderr, "[main_samview] unknown flag character '%c'\n", *optarg );
+								  goto view_end;
+							  }
+						  }
+					  }
+					  if(c=='f') g_flag_on = f ;
+					  else g_flag_off = f ;
+				  } break ;
+		case 'm': g_min_length = strtol(optarg, 0, 0); break;
+		case 'M': g_max_length = strtol(optarg, 0, 0); break;
 		case 'q': g_min_mapQ = atoi(optarg); break;
 		case 'u': compress_level = 0; break;
 		case '1': compress_level = 1; break;
@@ -139,11 +187,13 @@ int main_samview(int argc, char *argv[])
 		case 'R': fn_rg = strdup(optarg); break;
 		case 'x': of_type = BAM_OFHEX; break;
 		case 'X': of_type = BAM_OFSTR; break;
+        case 'Y': if( !strchr(out_mode, 'F') ) strcat(out_mode, "F"); break;
 		case '?': is_long_help = 1; break;
 		case 'T': fn_ref = strdup(optarg); is_bamin = 0; break;
 		default: return usage(is_long_help);
 		}
 	}
+
 	if (compress_level >= 0) is_bamout = 1;
 	if (is_header_only) is_header = 1;
 	if (is_bamout) strcat(out_mode, "b");
@@ -272,6 +322,7 @@ static int usage(int is_long_help)
 	fprintf(stderr, "         -h       print header for the SAM output\n");
 	fprintf(stderr, "         -H       print header only (no alignments)\n");
 	fprintf(stderr, "         -S       input is SAM\n");
+    fprintf(stderr, "         -Y       output is FastQ\n");
 	fprintf(stderr, "         -u       uncompressed BAM output (force -b)\n");
 	fprintf(stderr, "         -1       fast compression (force -b)\n");
 	fprintf(stderr, "         -x       output FLAG in HEX (samtools-C specific)\n");
@@ -284,6 +335,8 @@ static int usage(int is_long_help)
 	fprintf(stderr, "         -R FILE  list of read groups to be outputted [null]\n");
 	fprintf(stderr, "         -f INT   required flag, 0 for unset [0]\n");
 	fprintf(stderr, "         -F INT   filtering flag, 0 for unset [0]\n");
+	fprintf(stderr, "         -m INT   minimum (insert-) length [0]\n");
+	fprintf(stderr, "         -M INT   maximum (insert-) length [inf]\n");
 	fprintf(stderr, "         -q INT   minimum mapping quality [0]\n");
 	fprintf(stderr, "         -l STR   only output reads in library STR [null]\n");
 	fprintf(stderr, "         -r STR   only output reads in read group STR [null]\n");
@@ -319,6 +372,14 @@ static int usage(int is_long_help)
      f=0x200 (failure) and d=0x400 (duplicate). Note that `-x' and\n\
      `-X' are samtools-C specific. Picard and older samtools do not\n\
      support HEX or string flags.\n\
+\n\
+  7. Flags can be specified as strings, too.  If the first character of\n\
+     the argument to -f or -F is a digit, the argument is parsed as\n\
+     number, else as list of flag characters.  The character '_' is\n\
+     ignored to allow specification of '1' and '2' as strings.\n\
+\n\
+  8. Minimum and maximum length are matched against read length for\n\
+     unpaired reads, and against inferred insert size for paired reads.\n\
 \n");
 	return 1;
 }

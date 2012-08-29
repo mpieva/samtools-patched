@@ -28,6 +28,14 @@
 #ifndef FAIDX_H
 #define FAIDX_H
 
+#if    __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 4)
+#define FAIDX_WARN_UNUSED_RESULT               \
+  __attribute__((__warn_unused_result__)) 
+#else
+#define FAIDX_WARN_UNUSED_RESULT
+#endif /* __GNUC__ */
+
+
 /*!
   @header
 
@@ -55,7 +63,7 @@ extern "C" {
 	  @abstract    Distroy a faidx_t struct.
 	  @param  fai  Pointer to the struct to be destroyed
 	 */
-	void fai_destroy(faidx_t *fai);
+	int fai_destroy(faidx_t *fai);
 
 	/*!
 	  @abstract   Load index from "fn.fai".

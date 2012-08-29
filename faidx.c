@@ -175,14 +175,15 @@ faidx_t *fai_read(FILE *fp)
 	return fai;
 }
 
-void fai_destroy(faidx_t *fai)
+int fai_destroy(faidx_t *fai)
 {
-	int i;
+	int i,r=0;
 	for (i = 0; i < fai->n; ++i) free(fai->name[i]);
 	free(fai->name);
 	kh_destroy(s, fai->hash);
-	if (fai->rz) razf_close(fai->rz);
+	if (fai->rz) r=razf_close(fai->rz);
 	free(fai);
+    return r;
 }
 
 int fai_build(const char *fn)
@@ -200,9 +201,9 @@ int fai_build(const char *fn)
 		return -1;
 	}
 	fai = fai_build_core(rz);
-	razf_close(rz);
+	
 	fp = fopen(str, "wb");
-	if (fp == 0) {
+	if (razf_close(rz)<0 || fp == 0) {
 		fprintf(stderr, "[fai_build] fail to write FASTA index %s\n",str);
 		fai_destroy(fai); free(str);
 		return -1;
@@ -210,8 +211,7 @@ int fai_build(const char *fn)
 	fai_save(fai, fp);
 	fclose(fp);
 	free(str);
-	fai_destroy(fai);
-	return 0;
+	return fai_destroy(fai);
 }
 
 #ifdef _USE_KNETFILE

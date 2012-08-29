@@ -89,22 +89,27 @@ static void add_zindex(RAZF *rz, int64_t in, int64_t out){
 	rz->index->size ++;
 }
 
-static void save_zindex(RAZF *rz, int fd){
+static int save_zindex(RAZF *rz, int fd) RAZF_WARN_UNUSED_RESULT;
+static int save_zindex(RAZF *rz, int fd) {
 	int32_t i, v32;
 	int is_be;
 	is_be = is_big_endian();
-	if(is_be) write(fd, &rz->index->size, sizeof(int));
+	if(is_be) {
+        if( 4!=write(fd, &rz->index->size, 4) ) return -1 ;
+    }
 	else {
 		v32 = byte_swap_4((uint32_t)rz->index->size);
-		write(fd, &v32, sizeof(uint32_t));
+		if( 4!=write(fd, &v32, 4) ) return -1 ;
 	}
 	v32 = rz->index->size / RZ_BIN_SIZE + 1;
 	if(!is_be){
 		for(i=0;i<v32;i++) rz->index->bin_offsets[i]  = byte_swap_8((uint64_t)rz->index->bin_offsets[i]);
 		for(i=0;i<rz->index->size;i++) rz->index->cell_offsets[i] = byte_swap_4((uint32_t)rz->index->cell_offsets[i]);
 	}
-	write(fd, rz->index->bin_offsets, sizeof(int64_t) * v32);
-	write(fd, rz->index->cell_offsets, sizeof(int32_t) * rz->index->size);
+    if( 8 * v32 != write(fd, rz->index->bin_offsets, 8 * v32) || 4 *
+            rz->index->size != write(fd, rz->index->cell_offsets, sizeof(int32_t) * rz->index->size) )
+        return -1 ;
+    return 0;
 }
 #endif
 
@@ -188,7 +193,8 @@ static RAZF* razf_open_w(int fd){
 	return rz;
 }
 
-static void _razf_write(RAZF* rz, const void *data, int size){
+static int _razf_write(RAZF* rz, const void *data, int size) RAZF_WARN_UNUSED_RESULT;
+static int _razf_write(RAZF* rz, const void *data, int size) { 
 	int tout;
 	rz->stream->avail_in = size;
 	rz->stream->next_in  = (void*)data;
@@ -197,31 +203,37 @@ static void _razf_write(RAZF* rz, const void *data, int size){
 		deflate(rz->stream, Z_NO_FLUSH);
 		rz->out += tout - rz->stream->avail_out;
 		if(rz->stream->avail_out) break;
+        if( RZ_BUFFER_SIZE - rz->stream->avail_out != write(
 #ifdef _USE_KNETFILE
-		write(rz->x.fpw, rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out);
+            rz->x.fpw,
 #else
-		write(rz->filedes, rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out);
+            rz->filedes,
 #endif
+            rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out)) return -1 ;
 		rz->stream->avail_out = RZ_BUFFER_SIZE;
 		rz->stream->next_out  = rz->outbuf;
 		if(rz->stream->avail_in == 0) break;
 	};
 	rz->in += size - rz->stream->avail_in;
 	rz->block_off += size - rz->stream->avail_in;
+    return 0;
 }
 
-static void razf_flush(RAZF *rz){
+static int razf_flush(RAZF *rz) RAZF_WARN_UNUSED_RESULT;
+static int razf_flush(RAZF *rz) {
 	uint32_t tout;
 	if(rz->buf_len){
-		_razf_write(rz, rz->inbuf, rz->buf_len);
+		if(0>_razf_write(rz, rz->inbuf, rz->buf_len)) return -1;
 		rz->buf_off = rz->buf_len = 0;
 	}
 	if(rz->stream->avail_out){
+        if( RZ_BUFFER_SIZE - rz->stream->avail_out != write(
 #ifdef _USE_KNETFILE    
-		write(rz->x.fpw, rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out);
+		    rz->x.fpw,
 #else        
-		write(rz->filedes, rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out);
+		    rz->filedes,
 #endif
+            rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out)) return -1;
 		rz->stream->avail_out = RZ_BUFFER_SIZE;
 		rz->stream->next_out  = rz->outbuf;
 	}
@@ -230,23 +242,27 @@ static void razf_flush(RAZF *rz){
 		deflate(rz->stream, Z_FULL_FLUSH);
 		rz->out += tout - rz->stream->avail_out;
 		if(rz->stream->avail_out == 0){
+            if( RZ_BUFFER_SIZE - rz->stream->avail_out != write(
 #ifdef _USE_KNETFILE    
-			write(rz->x.fpw, rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out);
+                rz->x.fpw,
 #else            
-			write(rz->filedes, rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out);
+                rz->filedes,
 #endif
+                rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out)) return -1;
 			rz->stream->avail_out = RZ_BUFFER_SIZE;
 			rz->stream->next_out  = rz->outbuf;
 		} else break;
 	}
 	rz->block_pos = rz->out;
 	rz->block_off = 0;
+    return 0;
 }
 
-static void razf_end_flush(RAZF *rz){
+static int razf_end_flush(RAZF *rz) RAZF_WARN_UNUSED_RESULT;
+static int razf_end_flush(RAZF *rz) {
 	uint32_t tout;
 	if(rz->buf_len){
-		_razf_write(rz, rz->inbuf, rz->buf_len);
+		if(0>_razf_write(rz, rz->inbuf, rz->buf_len)) return -1;
 		rz->buf_off = rz->buf_len = 0;
 	}
 	while(1){
@@ -254,28 +270,32 @@ static void razf_end_flush(RAZF *rz){
 		deflate(rz->stream, Z_FINISH);
 		rz->out += tout - rz->stream->avail_out;
 		if(rz->stream->avail_out < RZ_BUFFER_SIZE){
+            if( RZ_BUFFER_SIZE - rz->stream->avail_out != write(
 #ifdef _USE_KNETFILE        
-			write(rz->x.fpw, rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out);
+			    rz->x.fpw,
 #else            
-			write(rz->filedes, rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out);
+			    rz->filedes,
 #endif
+                rz->outbuf, RZ_BUFFER_SIZE - rz->stream->avail_out)) return -1;
 			rz->stream->avail_out = RZ_BUFFER_SIZE;
 			rz->stream->next_out  = rz->outbuf;
 		} else break;
 	}
+    return 0;
 }
 
-static void _razf_buffered_write(RAZF *rz, const void *data, int size){
+static int _razf_buffered_write(RAZF *rz, const void *data, int size) RAZF_WARN_UNUSED_RESULT;
+static int _razf_buffered_write(RAZF *rz, const void *data, int size) {
 	int i, n;
 	while(1){
 		if(rz->buf_len == RZ_BUFFER_SIZE){
-			_razf_write(rz, rz->inbuf, rz->buf_len);
+			if(0>_razf_write(rz, rz->inbuf, rz->buf_len)) return -1;
 			rz->buf_len = 0;
 		}
 		if(size + rz->buf_len < RZ_BUFFER_SIZE){
 			for(i=0;i<size;i++) ((char*)rz->inbuf + rz->buf_len)[i] = ((char*)data)[i];
 			rz->buf_len += size;
-			return;
+			return 0;
 		} else {
 			n = RZ_BUFFER_SIZE - rz->buf_len;
 			for(i=0;i<n;i++) ((char*)rz->inbuf + rz->buf_len)[i] = ((char*)data)[i];
@@ -286,21 +306,21 @@ static void _razf_buffered_write(RAZF *rz, const void *data, int size){
 	}
 }
 
-int razf_write(RAZF* rz, const void *data, int size){
+int razf_write(RAZF* rz, const void *data, int size) {
 	int ori_size, n;
 	int64_t next_block;
 	ori_size = size;
 	next_block = ((rz->in / RZ_BLOCK_SIZE) + 1) * RZ_BLOCK_SIZE;
 	while(rz->in + rz->buf_len + size >= next_block){
 		n = next_block - rz->in - rz->buf_len;
-		_razf_buffered_write(rz, data, n);
+		if(0>_razf_buffered_write(rz, data, n)) return -1;
 		data += n;
 		size -= n;
-		razf_flush(rz);
+		if(0>razf_flush(rz)) return -1;
 		add_zindex(rz, rz->in, rz->out);
 		next_block = ((rz->in / RZ_BLOCK_SIZE) + 1) * RZ_BLOCK_SIZE;
 	}
-	_razf_buffered_write(rz, data, size);
+	if(0>_razf_buffered_write(rz, data, size)) return -1;
 	return ori_size;
 }
 #endif
@@ -793,32 +813,33 @@ int64_t razf_seek2(RAZF *rz, uint64_t voffset, int where)
 	return razf_jump(rz, voffset>>16, voffset&0xffff);
 }
 
-void razf_close(RAZF *rz){
+int razf_close(RAZF *rz) {
+    int r = 0;
 	if(rz->mode == 'w'){
 #ifndef _RZ_READONLY
-		razf_end_flush(rz);
+		if( -1==razf_end_flush(rz) ) r=-1;
 		deflateEnd(rz->stream);
 #ifdef _USE_KNETFILE
-		save_zindex(rz, rz->x.fpw);
+		if(0>save_zindex(rz, rz->x.fpw)) r=-1;
 		if(is_big_endian()){
-			write(rz->x.fpw, &rz->in, sizeof(int64_t));
-			write(rz->x.fpw, &rz->out, sizeof(int64_t));
+			if( 8!=write(rz->x.fpw, &rz->in, 8) ||
+			    8!=write(rz->x.fpw, &rz->out, 8)) r=-1;
 		} else {
 			uint64_t v64 = byte_swap_8((uint64_t)rz->in);
-			write(rz->x.fpw, &v64, sizeof(int64_t));
+			if( 8!=write(rz->x.fpw, &v64, 8)) r=-1;
 			v64 = byte_swap_8((uint64_t)rz->out);
-			write(rz->x.fpw, &v64, sizeof(int64_t));
+			if( 8!=write(rz->x.fpw, &v64, 8)) r=-1;
 		}
 #else
 		save_zindex(rz, rz->filedes);
 		if(is_big_endian()){
-			write(rz->filedes, &rz->in, sizeof(int64_t));
-			write(rz->filedes, &rz->out, sizeof(int64_t));
+			if( 8!=write(rz->filedes, &rz->in, 8) ||
+			    8!=write(rz->filedes, &rz->out, 8)) r=-1;
 		} else {
 			uint64_t v64 = byte_swap_8((uint64_t)rz->in);
-			write(rz->filedes, &v64, sizeof(int64_t));
+			if( 8!=write(rz->filedes, &v64, 8)) r=-1;
 			v64 = byte_swap_8((uint64_t)rz->out);
-			write(rz->filedes, &v64, sizeof(int64_t));
+			if( 8!=write(rz->filedes, &v64, 8)) r=-1;
 		}
 #endif
 #endif
@@ -843,11 +864,12 @@ void razf_close(RAZF *rz){
     if (rz->mode == 'r')
         knet_close(rz->x.fpr);
     if (rz->mode == 'w')
-        close(rz->x.fpw);
+        if(!r) r=close(rz->x.fpw);
 #else
-	close(rz->filedes);
+	if(!r) r=close(rz->filedes);
 #endif
 	free(rz);
+    return r;
 }
 
 #endif

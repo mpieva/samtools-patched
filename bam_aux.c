@@ -26,7 +26,7 @@ uint8_t *bam_aux_get_core(bam1_t *b, const char tag[2])
 }
 
 #define __skip_tag(s) do { \
-		int type = toupper(*(s)); \
+		uint8_t type = *(s); \
 		++(s); \
 		if (type == 'Z' || type == 'H') { while (*(s)) ++(s); ++(s); } \
 		else if (type == 'B') (s) += 5 + bam_aux_type2size(*(s)) * (*(int32_t*)((s)+1)); \
@@ -36,7 +36,7 @@ uint8_t *bam_aux_get_core(bam1_t *b, const char tag[2])
 uint8_t *bam_aux_get(const bam1_t *b, const char tag[2])
 {
 	uint8_t *s;
-	int y = tag[0]<<8 | tag[1];
+	int y = (int)tag[0]<<8 | tag[1];
 	s = bam1_aux(b);
 	while (s < b->data + b->data_len) {
 		int x = (int)s[0]<<8 | s[1];
@@ -140,7 +140,13 @@ int bam_parse_region(bam_header_t *header, const char *str, int *ref_id, int *be
 				free(s); return -1;
 			} else s[name_end] = ':', name_end = l;
 		}
-	} else iter = kh_get(s, h, str);
+    } else {
+        iter = kh_get(s, h, str);
+        if (iter == kh_end(h)) {
+            if (bam_verbose >= 2) fprintf(stderr, "[%s] fail to determine the sequence name.\n", __func__);
+            free(s); return -1;
+        }
+    }
 	*ref_id = kh_val(h, iter);
 	// parse the interval
 	if (name_end < l) {

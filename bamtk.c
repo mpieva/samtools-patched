@@ -17,6 +17,8 @@ int bam_tview_main(int argc, char *argv[]);
 int bam_mating(int argc, char *argv[]);
 int bam_rmdup(int argc, char *argv[]);
 int bam_flagstat(int argc, char *argv[]);
+int bam_flagstatx(int argc, char *argv[]);
+int bam_covstat(int argc, char *argv[]);
 int bam_fillmd(int argc, char *argv[]);
 int bam_idxstats(int argc, char *argv[]);
 int main_samview(int argc, char *argv[]);
@@ -48,6 +50,8 @@ static int usage()
 	fprintf(stderr, "         idxstats    BAM index stats (r595 or later)\n");
 	fprintf(stderr, "         fixmate     fix mate information\n");
 	fprintf(stderr, "         flagstat    simple stats\n");
+	fprintf(stderr, "         flagstatx   fancy stats\n");
+	fprintf(stderr, "         covstat     coverage per read group and target\n");
 	fprintf(stderr, "         calmd       recalculate MD/NM tags and '=' bases\n");
 	fprintf(stderr, "         merge       merge sorted alignments\n");
 	fprintf(stderr, "         rmdup       remove PCR duplicates\n");
@@ -82,10 +86,13 @@ int main(int argc, char *argv[])
 	else if (strcmp(argv[1], "sort") == 0) return bam_sort(argc-1, argv+1);
 	else if (strcmp(argv[1], "index") == 0) return bam_index(argc-1, argv+1);
 	else if (strcmp(argv[1], "idxstats") == 0) return bam_idxstats(argc-1, argv+1);
+	else if (strcmp(argv[1], "idxstat") == 0) return bam_idxstats(argc-1, argv+1); // common spelling mistake...
 	else if (strcmp(argv[1], "faidx") == 0) return faidx_main(argc-1, argv+1);
 	else if (strcmp(argv[1], "fixmate") == 0) return bam_mating(argc-1, argv+1);
 	else if (strcmp(argv[1], "rmdup") == 0) return bam_rmdup(argc-1, argv+1);
 	else if (strcmp(argv[1], "flagstat") == 0) return bam_flagstat(argc-1, argv+1);
+	else if (strcmp(argv[1], "flagstatx") == 0) return bam_flagstatx(argc-1, argv+1);
+	else if (strcmp(argv[1], "covstat") == 0) return bam_covstat(argc-1, argv+1);
 	else if (strcmp(argv[1], "calmd") == 0) return bam_fillmd(argc-1, argv+1);
 	else if (strcmp(argv[1], "fillmd") == 0) return bam_fillmd(argc-1, argv+1);
 	else if (strcmp(argv[1], "reheader") == 0) return main_reheader(argc-1, argv+1);

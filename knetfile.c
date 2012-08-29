@@ -233,7 +233,7 @@ static int kftp_get_response(knetFile *ftp)
 static int kftp_send_cmd(knetFile *ftp, const char *cmd, int is_get)
 {
 	if (socket_wait(ftp->ctrl_fd, 0) <= 0) return -1; // socket is not ready for writing
-	netwrite(ftp->ctrl_fd, cmd, strlen(cmd));
+	if (netwrite(ftp->ctrl_fd, cmd, strlen(cmd)) <= 0) return -1;
 	return is_get? kftp_get_response(ftp) : 0;
 }
 
@@ -241,7 +241,7 @@ static int kftp_pasv_prep(knetFile *ftp)
 {
 	char *p;
 	int v[6];
-	kftp_send_cmd(ftp, "PASV\r\n", 1);
+	if (kftp_send_cmd(ftp, "PASV\r\n", 1) < 0) return -1;
 	for (p = ftp->response; *p && *p != '('; ++p);
 	if (*p != '(') return -1;
 	++p;
@@ -271,9 +271,9 @@ int kftp_connect(knetFile *ftp)
 	ftp->ctrl_fd = socket_connect(ftp->host, ftp->port);
 	if (ftp->ctrl_fd == -1) return -1;
 	kftp_get_response(ftp);
-	kftp_send_cmd(ftp, "USER anonymous\r\n", 1);
-	kftp_send_cmd(ftp, "PASS kftp@\r\n", 1);
-	kftp_send_cmd(ftp, "TYPE I\r\n", 1);
+	if (kftp_send_cmd(ftp, "USER anonymous\r\n", 1)<0 ||
+	    kftp_send_cmd(ftp, "PASS kftp@\r\n", 1)<0 ||
+	    kftp_send_cmd(ftp, "TYPE I\r\n", 1)<0) return -1;
 	return 0;
 }
 
@@ -323,8 +323,8 @@ int kftp_connect_file(knetFile *fp)
 		netclose(fp->fd);
 		if (fp->no_reconnect) kftp_get_response(fp);
 	}
-	kftp_pasv_prep(fp);
-    kftp_send_cmd(fp, fp->size_cmd, 1);
+	if (kftp_pasv_prep(fp) < 0) return -1;
+    if (kftp_send_cmd(fp, fp->size_cmd, 1) < 0) return -1;
 #ifndef _WIN32
     if ( sscanf(fp->response,"%*d %lld", &file_size) != 1 )
     {
@@ -347,9 +347,9 @@ int kftp_connect_file(knetFile *fp)
 		int64tostr(tmp + 5, fp->offset);
 		strcat(tmp, "\r\n");
 #endif
-		kftp_send_cmd(fp, tmp, 1);
+		if (kftp_send_cmd(fp, tmp, 1) < 0) return -1;
 	}
-	kftp_send_cmd(fp, fp->retr, 0);
+	if (kftp_send_cmd(fp, fp->retr, 0) < 0) return -1;
 	kftp_pasv_connect(fp);
 	ret = kftp_get_response(fp);
 	if (ret != 150) {
@@ -412,7 +412,7 @@ int khttp_connect_file(knetFile *fp)
 	l += sprintf(buf + l, "GET %s HTTP/1.0\r\nHost: %s\r\n", fp->path, fp->http_host);
     l += sprintf(buf + l, "Range: bytes=%lld-\r\n", (long long)fp->offset);
 	l += sprintf(buf + l, "\r\n");
-	netwrite(fp->fd, buf, l);
+	if (netwrite(fp->fd, buf, l)<0) return -1;
 	l = 0;
 	while (netread(fp->fd, buf + l, 1)) { // read HTTP header; FIXME: bad efficiency
 		if (buf[l] == '\n' && l >= 3)
@@ -462,11 +462,11 @@ knetFile *knet_open(const char *fn, const char *mode)
 			knet_close(fp);
 			return 0;
 		}
-		kftp_connect_file(fp);
+		if (kftp_connect_file(fp) < 0) return 0;
 	} else if (strstr(fn, "http://") == fn) {
 		fp = khttp_parse_url(fn, mode);
 		if (fp == 0) return 0;
-		khttp_connect_file(fp);
+		if (khttp_connect_file(fp)<0) return 0;
 	} else { // local file
 #ifdef _WIN32
 		/* In windows, O_BINARY is necessary. In Linux/Mac, O_BINARY may
@@ -507,11 +507,11 @@ off_t knet_read(knetFile *fp, void *buf, off_t len)
 	if (fp->type == KNF_TYPE_FTP) {
 		if (fp->is_ready == 0) {
 			if (!fp->no_reconnect) kftp_reconnect(fp);
-			kftp_connect_file(fp);
+			if (kftp_connect_file(fp) < 0) return 0;
 		}
 	} else if (fp->type == KNF_TYPE_HTTP) {
 		if (fp->is_ready == 0)
-			khttp_connect_file(fp);
+			if (khttp_connect_file(fp) < 0) return 0;
 	}
 	if (fp->type == KNF_TYPE_LOCAL) { // on Windows, the following block is necessary; not on UNIX
 		off_t rest = len, curr;

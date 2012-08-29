@@ -109,16 +109,24 @@ typedef struct RandomAccessZFile  {
 	/* set has_index to 0 in mode 'w', then index will be discarded */
 } RAZF;
 
+#if    __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 4)
+#define RAZF_WARN_UNUSED_RESULT               \
+  __attribute__((__warn_unused_result__)) 
+#else
+#define RAZF_WARN_UNUSED_RESULT
+#endif /* __GNUC__ */
+
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 	RAZF* razf_dopen(int data_fd, const char *mode);
 	RAZF *razf_open(const char *fn, const char *mode);
-	int razf_write(RAZF* rz, const void *data, int size);
+	int razf_write(RAZF* rz, const void *data, int size) RAZF_WARN_UNUSED_RESULT ;
 	int razf_read(RAZF* rz, void *data, int size);
 	int64_t razf_seek(RAZF* rz, int64_t pos, int where);
-	void razf_close(RAZF* rz);
+	int razf_close(RAZF* rz) RAZF_WARN_UNUSED_RESULT ;
 
 #define razf_tell(rz) ((rz)->out)
 

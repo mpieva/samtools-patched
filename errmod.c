@@ -12,7 +12,7 @@ typedef struct {
 	uint32_t c[16];
 } call_aux_t;
 
-static errmod_coef_t *cal_coef(double depcorr, double eta)
+static errmod_coef_t *cal_coef(double depcorr, double eta, int n_hap)
 {
 	int k, n, q;
 	long double sum, sum1;
@@ -50,17 +50,19 @@ static errmod_coef_t *cal_coef(double depcorr, double eta)
 	ec->lhet = (double*)calloc(256 * 256, sizeof(double));
 	for (n = 0; n < 256; ++n)
 		for (k = 0; k < 256; ++k)
-			ec->lhet[n<<8|k] = lC[n<<8|k] - M_LN2 * n;
+            // I have no idea what's going on here, but I *do* know that
+            // lk_{het} is 0 for only one haplotype. -- US, 2011-03-24
+			ec->lhet[n<<8|k] = n_hap == 1 ? log(0) : lC[n<<8|k] - M_LN2 * n;
 	free(lC);
 	return ec;
 }
 
-errmod_t *errmod_init(float depcorr)
+errmod_t *errmod_init(float depcorr, int n_hap)
 {
 	errmod_t *em;
 	em = (errmod_t*)calloc(1, sizeof(errmod_t));
 	em->depcorr = depcorr;
-	em->coef = cal_coef(depcorr, 0.03);
+	em->coef = cal_coef(depcorr, 0.03, n_hap);
 	return em;
 }
 
@@ -76,7 +78,7 @@ int errmod_cal(const errmod_t *em, int n, int m, uint16_t *bases, float *q)
 	call_aux_t aux;
 	int i, j, k, w[32];
 
-	if (m > m) return -1;
+	if (m > n) return -1;
 	memset(q, 0, m * m * sizeof(float));
 	if (n == 0) return 0;
 	// calculate aux.esum and aux.fsum

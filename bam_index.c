@@ -1,5 +1,7 @@
 #include <ctype.h>
 #include <assert.h>
+#include <string.h>
+#include <errno.h>
 #include "bam.h"
 #include "khash.h"
 #include "ksort.h"
@@ -327,14 +329,16 @@ static bam_index_t *bam_index_load_core(FILE *fp)
 		fprintf(stderr, "[bam_index_load_core] fail to load index.\n");
 		return 0;
 	}
-	fread(magic, 1, 4, fp);
-	if (strncmp(magic, "BAI\1", 4)) {
+	if (4!=fread(magic, 1, 4, fp) || strncmp(magic, "BAI\1", 4)) {
 		fprintf(stderr, "[bam_index_load] wrong magic number.\n");
 		fclose(fp);
 		return 0;
 	}
 	idx = (bam_index_t*)calloc(1, sizeof(bam_index_t));	
-	fread(&idx->n, 4, 1, fp);
+	if (1!=fread(&idx->n, 4, 1, fp)) {
+        free(idx);
+        goto err0;
+    }
 	if (bam_is_be) bam_swap_endian_4p(&idx->n);
 	idx->index = (khash_t(i)**)calloc(idx->n, sizeof(void*));
 	idx->index2 = (bam_lidx_t*)calloc(idx->n, sizeof(bam_lidx_t));
@@ -347,18 +351,18 @@ static bam_index_t *bam_index_load_core(FILE *fp)
 		bam_binlist_t *p;
 		index = idx->index[i] = kh_init(i);
 		// load binning index
-		fread(&size, 4, 1, fp);
+		if (1!=fread(&size, 4, 1, fp)) goto hell;
 		if (bam_is_be) bam_swap_endian_4p(&size);
 		for (j = 0; j < (int)size; ++j) {
-			fread(&key, 4, 1, fp);
+			if (1!=fread(&key, 4, 1, fp)) goto hell;
 			if (bam_is_be) bam_swap_endian_4p(&key);
 			k = kh_put(i, index, key, &ret);
 			p = &kh_value(index, k);
-			fread(&p->n, 4, 1, fp);
+			if (1!=fread(&p->n, 4, 1, fp)) goto hell;
 			if (bam_is_be) bam_swap_endian_4p(&p->n);
 			p->m = p->n;
 			p->list = (pair64_t*)malloc(p->m * 16);
-			fread(p->list, 16, p->n, fp);
+			if (p->n!=fread(p->list, 16, p->n, fp)) goto hell;
 			if (bam_is_be) {
 				int x;
 				for (x = 0; x < p->n; ++x) {
@@ -368,17 +372,24 @@ static bam_index_t *bam_index_load_core(FILE *fp)
 			}
 		}
 		// load linear index
-		fread(&index2->n, 4, 1, fp);
+		if (1!=fread(&index2->n, 4, 1, fp)) goto hell;
 		if (bam_is_be) bam_swap_endian_4p(&index2->n);
 		index2->m = index2->n;
 		index2->offset = (uint64_t*)calloc(index2->m, 8);
-		fread(index2->offset, index2->n, 8, fp);
+		if(index2->n != fread(index2->offset, 8, index2->n, fp)) goto hell;
 		if (bam_is_be)
 			for (j = 0; j < index2->n; ++j) bam_swap_endian_8p(&index2->offset[j]);
 	}
 	if (fread(&idx->n_no_coor, 8, 1, fp) == 0) idx->n_no_coor = 0;
 	if (bam_is_be) bam_swap_endian_8p(&idx->n_no_coor);
 	return idx;
+
+hell:
+    bam_index_destroy(idx);
+err0:
+    fprintf(stderr, "[bam_index_load] read error: %s.\n", strerror(errno));
+    fclose(fp);
+    return 0;
 }
 
 bam_index_t *bam_index_load_local(const char *_fn)

@@ -5,6 +5,7 @@
 
 #define TYPE_BAM  1
 #define TYPE_READ 2
+#define TYPE_FASTQ 16 
 
 bam_header_t *bam_header_dup(const bam_header_t *h0)
 {
@@ -80,29 +81,32 @@ samfile_t *samopen(const char *fn, const char *mode, const void *aux)
 			// open file
 			fp->x.tamw = strcmp(fn, "-")? fopen(fn, "w") : stdout;
 			if (fp->x.tamr == 0) goto open_err_ret;
-			if (strchr(mode, 'X')) fp->type |= BAM_OFSTR<<2;
-			else if (strchr(mode, 'x')) fp->type |= BAM_OFHEX<<2;
-			else fp->type |= BAM_OFDEC<<2;
-			// write header
-			if (strchr(mode, 'h')) {
-				int i;
-				bam_header_t *alt;
-				// parse the header text 
-				alt = bam_header_init();
-				alt->l_text = fp->header->l_text; alt->text = fp->header->text;
-				sam_header_parse(alt);
-				alt->l_text = 0; alt->text = 0;
-				// check if there are @SQ lines in the header
-				fwrite(fp->header->text, 1, fp->header->l_text, fp->x.tamw); // FIXME: better to skip the trailing NULL
-				if (alt->n_targets) { // then write the header text without dumping ->target_{name,len}
-					if (alt->n_targets != fp->header->n_targets && bam_verbose >= 1)
-						fprintf(stderr, "[samopen] inconsistent number of target sequences. Output the text header.\n");
-				} else { // then dump ->target_{name,len}
-					for (i = 0; i < fp->header->n_targets; ++i)
-						fprintf(fp->x.tamw, "@SQ\tSN:%s\tLN:%d\n", fp->header->target_name[i], fp->header->target_len[i]);
-				}
-				bam_header_destroy(alt);
-			}
+            if (strchr(mode, 'F')) fp->type |= TYPE_FASTQ ;
+            else {
+                if (strchr(mode, 'X')) fp->type |= BAM_OFSTR<<2;
+                else if (strchr(mode, 'x')) fp->type |= BAM_OFHEX<<2;
+                else fp->type |= BAM_OFDEC<<2;
+                // write header
+                if (strchr(mode, 'h')) {
+                    int i;
+                    bam_header_t *alt;
+                    // parse the header text 
+                    alt = bam_header_init();
+                    alt->l_text = fp->header->l_text; alt->text = fp->header->text;
+                    sam_header_parse(alt);
+                    alt->l_text = 0; alt->text = 0;
+                    // check if there are @SQ lines in the header
+                    fwrite(fp->header->text, 1, fp->header->l_text, fp->x.tamw); // FIXME: better to skip the trailing NULL
+                    if (alt->n_targets) { // then write the header text without dumping ->target_{name,len}
+                        if (alt->n_targets != fp->header->n_targets && bam_verbose >= 1)
+                            fprintf(stderr, "[samopen] inconsistent number of target sequences. Output the text header.\n");
+                    } else { // then dump ->target_{name,len}
+                        for (i = 0; i < fp->header->n_targets; ++i)
+                            fprintf(fp->x.tamw, "@SQ\tSN:%s\tLN:%d\n", fp->header->target_name[i], fp->header->target_len[i]);
+                    }
+                    bam_header_destroy(alt);
+                }
+            }
 		}
 	}
 	return fp;
@@ -131,8 +135,62 @@ int samread(samfile_t *fp, bam1_t *b)
 
 int samwrite(samfile_t *fp, const bam1_t *b)
 {
+    int i;
 	if (fp == 0 || (fp->type & TYPE_READ)) return -1; // not open for writing
-	if (fp->type & TYPE_BAM) return bam_write1(fp->x.bam, b);
+    if (fp->type & TYPE_FASTQ) {
+        int l = 2 + b->core.l_qseq + b->core.l_qname ;
+        fputc(b->core.l_qseq && *bam1_qual(b) != 0xff ? '@' : '>', fp->x.tamw); // FastQ if we have quality, else FastA
+        fputs(bam1_qname(b), fp->x.tamw);
+        if( (b->core.flag & (BAM_FPAIRED|BAM_FREAD1|BAM_FREAD2)) == (BAM_FPAIRED|BAM_FREAD1) ) {
+            fputs("/1", fp->x.tamw) ;
+            l += 2 ;
+        }
+        if( (b->core.flag & (BAM_FPAIRED|BAM_FREAD1|BAM_FREAD2)) == (BAM_FPAIRED|BAM_FREAD2) ) {
+            fputs("/2", fp->x.tamw) ;
+            l += 2 ;
+        }
+        fputc('\n', fp->x.tamw);
+
+        // write FQ sequence here...
+        if( (b->core.flag & BAM_FREVERSE) ) {
+            for (i = b->core.l_qseq; i > 0 ; --i) fputc(bam_nt16_revcom_table[bam1_seqi(bam1_seq(b), i-1)], fp->x.tamw);
+        } else {
+            for (i = 0; i < b->core.l_qseq; ++i) fputc(bam_nt16_rev_table[bam1_seqi(bam1_seq(b), i)], fp->x.tamw);
+        }
+
+        if (b->core.l_qseq && *bam1_qual(b) != 0xff) {
+            l += 3 + b->core.l_qseq ;
+            fputs("\n+\n", fp->x.tamw);
+            /* XXX experimental fix to FastQ: decrease first Q-score by
+             * one if it would result in a '>', '@' or '+'.  If this
+             * ugly hack doesn't help to fix Tophat, it should be diked
+             * out again. */
+#if 1
+            if( b->core.l_qseq > 0 ) {
+                if( (b->core.flag & BAM_FREVERSE) ) {
+                    char kju = bam1_qual(b)[b->core.l_qseq-1] + 33 ;
+                    if( kju == '@' || kju == '+' || kju == '>' ) --kju ;
+                    fputc(kju, fp->x.tamw);
+                    for (i = b->core.l_qseq-1 ; i > 0; --i) fputc(bam1_qual(b)[i-1] + 33, fp->x.tamw);
+                } else {
+                    char kju = bam1_qual(b)[0] + 33 ;
+                    if( kju == '@' || kju == '+' || kju == '>' ) --kju ;
+                    fputc(kju, fp->x.tamw);
+                    for (i = 1; i < b->core.l_qseq; ++i) fputc(bam1_qual(b)[i] + 33, fp->x.tamw);
+                }
+            }
+#else
+            if( (b->core.flag & BAM_FREVERSE) ) {
+                for (i = b->core.l_qseq ; i > 0; --i) fputc(bam1_qual(b)[i-1] + 33, fp->x.tamw);
+            } else {
+                for (i = 0; i < b->core.l_qseq; ++i) fputc(bam1_qual(b)[i] + 33, fp->x.tamw);
+            }
+#endif
+        }
+        fputc('\n', fp->x.tamw);
+        return l ;
+    }
+    else if (fp->type & TYPE_BAM) return bam_write1(fp->x.bam, b);
 	else {
 		char *s = bam_format1_core(fp->header, b, fp->type>>2&3);
 		int l = strlen(s);

@@ -40,7 +40,7 @@
   @copyright Genome Research Ltd.
  */
 
-#define BAM_VERSION "0.1.18 (r982:295)"
+#define BAM_VERSION "0.1.18-evan.3"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -280,6 +280,7 @@ extern unsigned char bam_nt16_table[256];
 
 /*! @abstract Table for converting a 4-bit encoded nucleotide to a letter. */
 extern char *bam_nt16_rev_table;
+extern char *bam_nt16_revcom_table;
 
 extern char bam_nt16_nt4_table[];
 

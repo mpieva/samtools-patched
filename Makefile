@@ -1,5 +1,6 @@
 CC=			gcc
-CFLAGS=		-g -Wall -O2 #-m64 #-arch ppc
+# CFLAGS=		-ggdb -Wall -O0 #-m64 #-arch ppc
+CFLAGS=		-Wall -O2 #-m64 #-arch ppc
 DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -D_CURSES_LIB=1
 KNETFILE_O=	knetfile.o
 LOBJS=		bgzf.o kstring.o bam_aux.o bam.o bam_import.o sam.o bam_index.o	\
@@ -9,7 +10,7 @@ AOBJS=		bam_tview.o bam_plcmd.o sam_view.o	\
 			bam_rmdup.o bam_rmdupse.o bam_mate.o bam_stat.o bam_color.o	\
 			bamtk.o kaln.o bam2bcf.o bam2bcf_indel.o errmod.o sample.o \
 			cut_target.o phase.o bam2depth.o
-PROG=		samtools
+PROG=		samtools razip faidx bgzip
 INCLUDES=	-I.
 SUBDIRS=	. bcftools misc
 LIBPATH=
@@ -32,7 +33,26 @@ all-recur lib-recur clean-recur cleanlocal-recur install-recur:
 
 all:$(PROG)
 
-.PHONY:all lib clean cleanlocal
+install: all-recur
+	install -d -m 755 $(prefix)/bin
+	install -d -m 755 $(prefix)/include/bam
+	install -d -m 755 $(prefix)/lib
+	install -d -m 755 $(prefix)/share/man/man1
+	install -s -m 755 samtools $(prefix)/bin
+	install -s -m 755 razip $(prefix)/bin
+	install -s -m 755 bgzip $(prefix)/bin
+	install -s -m 755 faidx $(prefix)/bin
+	install    -m 644 libbam.a $(prefix)/lib
+	install    -m 644 *.h $(prefix)/include/bam/
+	install -s -m 755 bcftools/bcftools $(prefix)/bin
+	install    -m 755 bcftools/vcfutils.pl $(prefix)/bin
+	install    -m 644 samtools.1 $(prefix)/share/man/man1
+	install -s -m 755 misc/seqtk $(prefix)/bin
+	install -s -m 755 misc/wgsim $(prefix)/bin
+
+
+
+.PHONY:all lib clean cleanlocal install
 .PHONY:all-recur lib-recur clean-recur cleanlocal-recur install-recur
 
 lib:libbam.a
@@ -48,6 +68,9 @@ razip:razip.o razf.o $(KNETFILE_O)
 
 bgzip:bgzip.o bgzf.o $(KNETFILE_O)
 		$(CC) $(CFLAGS) -o $@ bgzf.o bgzip.o $(KNETFILE_O) -lz
+
+faidx: faidx.c razf.o $(KNETFILE_O)
+		$(CC) $(CFLAGS) -o $@ -DFAIDX_MAIN faidx.c razf.o $(KNETFILE_O) -lz
 
 razip.o:razf.h
 bam.o:bam.h razf.h bam_endian.h kstring.h sam_header.h
@@ -67,9 +90,7 @@ bam2bcf_indel.o:bam2bcf.h
 errmod.o:errmod.h
 phase.o:bam.h khash.h ksort.h
 bamtk.o:bam.h
-
 faidx.o:faidx.h razf.h khash.h
-faidx_main.o:faidx.h razf.h
 
 
 libbam.1.dylib-local:$(LOBJS)
