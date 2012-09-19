@@ -6,6 +6,7 @@
 #define TYPE_BAM  1
 #define TYPE_READ 2
 #define TYPE_FASTQ 16 
+#define TYPE_FASTA 32 
 
 bam_header_t *bam_header_dup(const bam_header_t *h0)
 {
@@ -81,7 +82,8 @@ samfile_t *samopen(const char *fn, const char *mode, const void *aux)
 			// open file
 			fp->x.tamw = strcmp(fn, "-")? fopen(fn, "w") : stdout;
 			if (fp->x.tamr == 0) goto open_err_ret;
-            if (strchr(mode, 'F')) fp->type |= TYPE_FASTQ ;
+            if (strchr(mode, 'Q')) fp->type |= TYPE_FASTQ ;
+            else if (strchr(mode, 'F')) fp->type |= TYPE_FASTA ;
             else {
                 if (strchr(mode, 'X')) fp->type |= BAM_OFSTR<<2;
                 else if (strchr(mode, 'x')) fp->type |= BAM_OFHEX<<2;
@@ -137,9 +139,11 @@ int samwrite(samfile_t *fp, const bam1_t *b)
 {
     int i;
 	if (fp == 0 || (fp->type & TYPE_READ)) return -1; // not open for writing
-    if (fp->type & TYPE_FASTQ) {
+    if (fp->type & (TYPE_FASTQ|TYPE_FASTA)) {
         int l = 2 + b->core.l_qseq + b->core.l_qname ;
-        fputc(b->core.l_qseq && *bam1_qual(b) != 0xff ? '@' : '>', fp->x.tamw); // FastQ if we have quality, else FastA
+        // FastQ if we have quality and actually want FastQ, else FastA
+        int fastq = b->core.l_qseq && *bam1_qual(b) != 0xff && (fp->type & TYPE_FASTQ) ;
+        fputc(fastq ? '@' : '>', fp->x.tamw);
         fputs(bam1_qname(b), fp->x.tamw);
         if( (b->core.flag & (BAM_FPAIRED|BAM_FREAD1|BAM_FREAD2)) == (BAM_FPAIRED|BAM_FREAD1) ) {
             fputs("/1", fp->x.tamw) ;
@@ -158,14 +162,14 @@ int samwrite(samfile_t *fp, const bam1_t *b)
             for (i = 0; i < b->core.l_qseq; ++i) fputc(bam_nt16_rev_table[bam1_seqi(bam1_seq(b), i)], fp->x.tamw);
         }
 
-        if (b->core.l_qseq && *bam1_qual(b) != 0xff) {
+        if (fastq) {
             l += 3 + b->core.l_qseq ;
             fputs("\n+\n", fp->x.tamw);
-            /* XXX experimental fix to FastQ: decrease first Q-score by
-             * one if it would result in a '>', '@' or '+'.  If this
-             * ugly hack doesn't help to fix Tophat, it should be diked
-             * out again. */
-#if 1
+            /* Experimental "fix" to FastQ: decrease first Q-score by
+             * one if it would result in a '>', '@' or '+'.  This ugly
+             * hack fixed Tophat, and probably helps other broken
+             * parsers.  Ugly as it is, the breakage is actually in the
+             * FastQ format. :/  */
             if( b->core.l_qseq > 0 ) {
                 if( (b->core.flag & BAM_FREVERSE) ) {
                     char kju = bam1_qual(b)[b->core.l_qseq-1] + 33 ;
@@ -179,13 +183,6 @@ int samwrite(samfile_t *fp, const bam1_t *b)
                     for (i = 1; i < b->core.l_qseq; ++i) fputc(bam1_qual(b)[i] + 33, fp->x.tamw);
                 }
             }
-#else
-            if( (b->core.flag & BAM_FREVERSE) ) {
-                for (i = b->core.l_qseq ; i > 0; --i) fputc(bam1_qual(b)[i-1] + 33, fp->x.tamw);
-            } else {
-                for (i = 0; i < b->core.l_qseq; ++i) fputc(bam1_qual(b)[i] + 33, fp->x.tamw);
-            }
-#endif
         }
         fputc('\n', fp->x.tamw);
         return l ;

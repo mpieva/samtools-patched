@@ -143,7 +143,7 @@ int main_samview(int argc, char *argv[])
 
 	/* parse command-line options */
 	strcpy(in_mode, "r"); strcpy(out_mode, "w");
-	while ((c = getopt(argc, argv, "Sbct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:m:M:Y")) >= 0) {
+	while ((c = getopt(argc, argv, "Sbct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:m:M:YZ")) >= 0) {
 		switch (c) {
 		case 's': g_subsam = atof(optarg); break;
 		case 'c': is_count = 1; break;
@@ -187,7 +187,8 @@ int main_samview(int argc, char *argv[])
 		case 'R': fn_rg = strdup(optarg); break;
 		case 'x': of_type = BAM_OFHEX; break;
 		case 'X': of_type = BAM_OFSTR; break;
-        case 'Y': if( !strchr(out_mode, 'F') ) strcat(out_mode, "F"); break;
+        case 'Y': if( !strchr(out_mode, 'Q') ) strcat(out_mode, "Q"); break;
+        case 'Z': if( !strchr(out_mode, 'F') ) strcat(out_mode, "F"); break;
 		case '?': is_long_help = 1; break;
 		case 'T': fn_ref = strdup(optarg); is_bamin = 0; break;
 		default: return usage(is_long_help);
@@ -323,6 +324,7 @@ static int usage(int is_long_help)
 	fprintf(stderr, "         -H       print header only (no alignments)\n");
 	fprintf(stderr, "         -S       input is SAM\n");
     fprintf(stderr, "         -Y       output is FastQ\n");
+    fprintf(stderr, "         -Z       output is FastA\n");
 	fprintf(stderr, "         -u       uncompressed BAM output (force -b)\n");
 	fprintf(stderr, "         -1       fast compression (force -b)\n");
 	fprintf(stderr, "         -x       output FLAG in HEX (samtools-C specific)\n");
