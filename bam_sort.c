@@ -434,18 +434,33 @@ int bam_sort(int argc, char *argv[])
 {
 	size_t max_mem = 500000000;
 	int c, is_by_qname = 0, is_stdout = 0;
+    char *ep ;
 	while ((c = getopt(argc, argv, "nowm:")) >= 0) {
 		switch (c) {
 		case 'o': is_stdout = 1; break;
 		case 'n': is_by_qname = 1; break;
         case 'w': g_ignore_warts = 1; break;                  
-		case 'm': max_mem = atol(optarg); break;
+        case 'm': max_mem = strtol(optarg, &ep, 10);
+                  switch(*ep) {
+                      case 'k': max_mem <<= 10 ; ++ep ; break ;
+                      case 'M': max_mem <<= 20 ; ++ep ; break ;
+                      case 'G': max_mem <<= 30 ; ++ep ; break ;
+                  }
+                  if(!*ep) break;
+        default: goto usage;
 		}
 	}
-	if (optind + 2 > argc) {
-		fprintf(stderr, "Usage: samtools sort [-on] [-m <maxMem>] <in.bam> <out.prefix>\n");
-		return 1;
-	}
+    if (optind + 2 > argc) goto usage ;
 	bam_sort_core_ext(is_by_qname, argv[optind], argv[optind+1], max_mem, is_stdout);
 	return 0;
+
+usage:
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Usage:   samtools sort [-on] [-m <maxMem>] <in.bam> <out.prefix>\n");
+    fprintf(stderr, "Options: -n       sort by read names\n");
+    fprintf(stderr, "         -o       write output to stdout\n");
+    fprintf(stderr, "         -m NUM   use NUM bytes of memory (%ld%c)\n",
+        max_mem >> 32 ? max_mem >> 30 : max_mem >> 22 ? max_mem >> 20 : max_mem >> 10,
+        max_mem >> 32 ?           'G' : max_mem >> 22 ?           'M' :           'k' ) ;
+    return 1;
 }
