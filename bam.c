@@ -206,6 +206,20 @@ int bam_read1(bamFile fp, bam1_t *b)
 	if (bam_read(fp, b->data, b->data_len) != b->data_len) return -4;
 	b->l_aux = b->data_len - c->n_cigar * 4 - c->l_qname - c->l_qseq - (c->l_qseq+1)/2;
 	if (bam_is_be) swap_endian_data(c, b->data_len, b->data);
+
+    // Fix flags 1:  if self coordinates and mate coordinates are equal.
+    // one mate must be unmapped.  Set mate unmapped unless self is
+    // unmapped.
+    if( (c->flag & (BAM_FPAIRED | BAM_FUNMAP)) == BAM_FPAIRED
+            && !(c->flag & BAM_FREVERSE) == !(c->flag & BAM_FMREVERSE)
+            && c->tid == c->mtid && c->pos == c->mpos )
+        c->flag |= BAM_FMUNMAP ;
+
+    // Fix flags 2: if at least one mate is unmapped, remove properly
+    // paired flag.
+    if( c->flag & (BAM_FUNMAP | BAM_FMUNMAP) )
+        c->flag &= ~BAM_FPROPER_PAIR ;
+
 	return 4 + block_len;
 }
 
