@@ -175,7 +175,7 @@ int main_cat(int argc, char *argv[])
 		}
 	}
 	if (argc - optind < 2) {
-        fprintf(stderr, "Usage: samtools cat [-h header.sam] [-o out.bam] <in1.bam> <in2.bam> [...]\n");
+        fprintf(stderr, "Usage: %s cat [-h header.sam] [-o out.bam] <in1.bam> <in2.bam> [...]\n", invocation_name);
         return 1;
     }
     ret = bam_cat(argc - optind, argv + optind, h, outfn? outfn : "-");

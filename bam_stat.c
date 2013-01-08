@@ -54,13 +54,13 @@ bam_flagstat_t *bam_flagstat_core(bamFile fp)
 		fprintf(stderr, "[bam_flagstat_core] Truncated file? Continue anyway.\n");
 	return s;
 }
-int bam_flagstat(int argc, char *argv[])
+int bam_flagstat(int argc, char *argv[], int vanilla)
 {
 	bamFile fp;
 	bam_header_t *header;
 	bam_flagstat_t *s;
 	if (argc == 1) {
-		fprintf(stderr, "Usage: samtools flagstat <in.bam>\n");
+		fprintf(stderr, "Usage: %s flagstat <in.bam>\n", invocation_name);
 		return 1;
 	}
 	fp = strcmp(argv[1], "-")? bam_open(argv[1], "r") : bam_dopen(fileno(stdin), "r");
@@ -70,10 +70,12 @@ int bam_flagstat(int argc, char *argv[])
 	printf("%lld + %lld in total (QC-passed reads + QC-failed reads)\n", s->n_reads[0], s->n_reads[1]);
 	printf("%lld + %lld duplicates\n", s->n_dup[0], s->n_dup[1]);
 	printf("%lld + %lld mapped (%.2f%%:%.2f%%)\n", s->n_mapped[0], s->n_mapped[1], (float)s->n_mapped[0] / s->n_reads[0] * 100.0, (float)s->n_mapped[1] / s->n_reads[1] * 100.0);
-	printf("%lld + %lld mapped at MAPQ>=30 (%.2f%%:%.2f%%)\n", s->n_map_good[0], s->n_map_good[1], (float)s->n_map_good[0] / s->n_reads[0] * 100.0, (float)s->n_map_good[1] / s->n_reads[1] * 100.0);
-	printf("%lld + %lld unpaired in sequencing\n", s->n_reads[0]-s->n_pair_all[0], s->n_reads[1]-s->n_pair_all[1]);
-	printf("%lld + %lld unpaired and mapped (%.2f%%:%.2f%%)\n", s->n_u_mapped[0], s->n_u_mapped[1], (float)s->n_u_mapped[0] / (s->n_reads[0]-s->n_pair_all[0]) * 100.0, (float)s->n_u_mapped[1] / (s->n_reads[1]-s->n_pair_all[1]) * 100.0);
-	printf("%lld + %lld unpaired and mapped at MAPQ>=30 (%.2f%%:%.2f%%)\n", s->n_u_map_good[0], s->n_u_map_good[1], (float)s->n_u_map_good[0] / (s->n_reads[0]-s->n_pair_all[0]) * 100.0, (float)s->n_u_map_good[1] / (s->n_reads[1]-s->n_pair_all[1]) * 100.0);
+    if( !vanilla ) {
+        printf("%lld + %lld mapped at MAPQ>=30 (%.2f%%:%.2f%%)\n", s->n_map_good[0], s->n_map_good[1], (float)s->n_map_good[0] / s->n_reads[0] * 100.0, (float)s->n_map_good[1] / s->n_reads[1] * 100.0);
+        printf("%lld + %lld unpaired in sequencing\n", s->n_reads[0]-s->n_pair_all[0], s->n_reads[1]-s->n_pair_all[1]);
+        printf("%lld + %lld unpaired and mapped (%.2f%%:%.2f%%)\n", s->n_u_mapped[0], s->n_u_mapped[1], (float)s->n_u_mapped[0] / (s->n_reads[0]-s->n_pair_all[0]) * 100.0, (float)s->n_u_mapped[1] / (s->n_reads[1]-s->n_pair_all[1]) * 100.0);
+        printf("%lld + %lld unpaired and mapped at MAPQ>=30 (%.2f%%:%.2f%%)\n", s->n_u_map_good[0], s->n_u_map_good[1], (float)s->n_u_map_good[0] / (s->n_reads[0]-s->n_pair_all[0]) * 100.0, (float)s->n_u_map_good[1] / (s->n_reads[1]-s->n_pair_all[1]) * 100.0);
+    }
 	printf("%lld + %lld paired in sequencing\n", s->n_pair_all[0], s->n_pair_all[1]);
 	printf("%lld + %lld read1\n", s->n_read1[0], s->n_read1[1]);
 	printf("%lld + %lld read2\n", s->n_read2[0], s->n_read2[1]);
@@ -154,7 +156,7 @@ int bam_flagstatx(int argc, char *argv[])
 
     khash_t(rg2stat) *h = kh_init(rg2stat);
 	if (argc == 1) {
-		fprintf(stderr, "Usage: samtools flagstatx <in.bam>\n");
+		fprintf(stderr, "Usage: %s flagstatx <in.bam>\n", invocation_name);
 		return 1;
 	}
 	fp = strcmp(argv[1], "-")? bam_open(argv[1], "r") : bam_dopen(fileno(stdin), "r");
@@ -230,7 +232,7 @@ int bam_covstat(int argc, char *argv[])
     }
 
 	if (argc == 1) {
-		fprintf(stderr, "Usage: samtools covstat [-X|-L] <in.bam>\n");
+		fprintf(stderr, "Usage: %s covstat [-X|-L] <in.bam>\n", invocation_name);
 		fprintf(stderr, "  Counts coverage (with -X) or aligned length (with -L).\n");
 		return 1;
 	}

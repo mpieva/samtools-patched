@@ -263,12 +263,12 @@ int bam_merge_core(int by_qname, const char *out, const char *headers, int n, ch
 	return 0;
 }
 
-int bam_merge(int argc, char *argv[])
+int bam_merge(int argc, char *argv[], int vanilla)
 {
 	int c, is_by_qname = 0, flag = 0, ret = 0;
 	char *fn_headers = NULL, *reg = 0, *oname = "-";
 
-	while ((c = getopt(argc, argv, "h:nru1R:fo:")) >= 0) {
+	while ((c = getopt(argc, argv, vanilla?"h:nru1R:":"h:nru1R:fo:")) >= 0) {
 		switch (c) {
 		case 'r': flag |= MERGE_RG; break;
 		case 'f': flag |= MERGE_FORCE; break;
@@ -282,12 +282,15 @@ int bam_merge(int argc, char *argv[])
 	}
 	if (optind >= argc) {
 		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage:   samtools merge [-nru] [-o out.bam] [-h inh.sam] <in1.bam> <in2.bam> [...]\n\n");
+        if( vanilla ) fprintf(stderr, "Usage:   %s merge [-nru] [-h inh.sam] <out.bam> <in1.bam> <in2.bam> [...]\n\n", invocation_name);
+        else          fprintf(stderr, "Usage:   %s merge [-nru] [-o out.bam] [-h inh.sam] <in1.bam> <in2.bam> [...]\n\n", invocation_name);
 		fprintf(stderr, "Options: -n       sort by read names\n");
 		fprintf(stderr, "         -r       attach RG tag (inferred from file names)\n");
 		fprintf(stderr, "         -u       uncompressed BAM output\n");
-		fprintf(stderr, "         -o FILE  write to FILE [stdout]\n");
-		fprintf(stderr, "         -f       overwrite the output BAM if exist\n");
+        if( !vanilla ) {
+            fprintf(stderr, "         -o FILE  write to FILE [stdout]\n");
+            fprintf(stderr, "         -f       overwrite the output BAM if exist\n");
+        }
 		fprintf(stderr, "         -1       compress level 1\n");
 		fprintf(stderr, "         -R STR   merge file in the specified region STR [all]\n");
 		fprintf(stderr, "         -h FILE  copy the header in FILE to <out.bam> [in1.bam]\n\n");
@@ -296,11 +299,16 @@ int bam_merge(int argc, char *argv[])
 		fprintf(stderr, "      the header dictionary in merging.\n\n");
 		return 1;
 	}
-    if (!(flag & MERGE_FORCE) && strcmp(oname, "-") && !access(oname, F_OK)) {
-        fprintf(stderr, "[%s] File '%s' exists. Please apply '-f' to overwrite. Abort.\n", __func__, oname);
-        return 1;
+    if( vanilla ) {
+        if (bam_merge_core(is_by_qname, argv[optind], fn_headers, argc - optind - 1, argv + optind + 1, flag, reg) < 0) ret = 1;
     }
-	if (bam_merge_core(is_by_qname, oname, fn_headers, argc - optind, argv + optind, flag, reg) < 0) ret = 1;
+    else {
+        if (!(flag & MERGE_FORCE) && strcmp(oname, "-") && !access(oname, F_OK)) {
+            fprintf(stderr, "[%s] File '%s' exists. Please apply '-f' to overwrite. Abort.\n", __func__, oname);
+            return 1;
+        }
+        if (bam_merge_core(is_by_qname, oname, fn_headers, argc - optind, argv + optind, flag, reg) < 0) ret = 1;
+    }
 	free(reg);
 	free(fn_headers);
 	return ret;
@@ -456,7 +464,7 @@ int bam_sort(int argc, char *argv[])
 
 usage:
     fprintf(stderr, "\n");
-    fprintf(stderr, "Usage:   samtools sort [-on] [-m <maxMem>] <in.bam> <out.prefix>\n");
+    fprintf(stderr, "Usage:   %s sort [-on] [-m <maxMem>] <in.bam> <out.prefix>\n", invocation_name);
     fprintf(stderr, "Options: -n       sort by read names\n");
     fprintf(stderr, "         -o       write output to stdout\n");
     fprintf(stderr, "         -m NUM   use NUM bytes of memory (%ld%c)\n",

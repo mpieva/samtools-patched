@@ -188,7 +188,7 @@ int bam_rmdup(int argc, char *argv[])
 	}
 	if (optind + 2 > argc) {
 		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage:  samtools rmdup [-sS] <input.srt.bam> <output.bam>\n\n");
+		fprintf(stderr, "Usage:  %s rmdup [-sS] <input.srt.bam> <output.bam>\n\n", invocation_name);
 		fprintf(stderr, "Option: -s    rmdup for SE reads\n");
 		fprintf(stderr, "        -S    treat PE reads as SE in rmdup (force -s)\n\n");
 		return 1;

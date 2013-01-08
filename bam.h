@@ -40,7 +40,7 @@
   @copyright Genome Research Ltd.
  */
 
-#define BAM_VERSION "0.1.18-evan.3"
+#define BAM_VERSION "0.1.18-evan.4"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -283,6 +283,8 @@ extern char *bam_nt16_rev_table;
 extern char *bam_nt16_revcom_table;
 
 extern char bam_nt16_nt4_table[];
+
+extern char *invocation_name ;
 
 #ifdef __cplusplus
 extern "C" {

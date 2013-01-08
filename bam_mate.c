@@ -59,7 +59,7 @@ int bam_mating(int argc, char *argv[])
 {
 	bamFile in, out;
 	if (argc < 3) {
-		fprintf(stderr, "samtools fixmate <in.nameSrt.bam> <out.nameSrt.bam>\n");
+		fprintf(stderr, "Usage: %s fixmate <in.nameSrt.bam> <out.nameSrt.bam>\n", invocation_name);
 		return 1;
 	}
 	in = (strcmp(argv[1], "-") == 0)? bam_dopen(fileno(stdin), "r") : bam_open(argv[1], "r");

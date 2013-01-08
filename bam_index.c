@@ -517,7 +517,7 @@ int bam_index_build(const char *fn)
 int bam_index(int argc, char *argv[])
 {
 	if (argc < 2) {
-		fprintf(stderr, "Usage: samtools index <in.bam> [out.index]\n");
+		fprintf(stderr, "Usage: %s index <in.bam> [out.index]\n", invocation_name);
 		return 1;
 	}
 	if (argc >= 3) bam_index_build2(argv[1], argv[2]);
@@ -532,7 +532,7 @@ int bam_idxstats(int argc, char *argv[])
 	bamFile fp;
 	int i;
 	if (argc < 2) {
-		fprintf(stderr, "Usage: samtools idxstats <in.bam>\n");
+		fprintf(stderr, "Usage: %s idxstats <in.bam>\n", invocation_name);
 		return 1;
 	}
 	fp = bam_open(argv[1], "r");

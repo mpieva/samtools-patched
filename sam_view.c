@@ -318,7 +318,7 @@ view_end:
 static int usage(int is_long_help)
 {
 	fprintf(stderr, "\n");
-	fprintf(stderr, "Usage:   samtools view [options] <in.bam>|<in.sam> [region1 [...]]\n\n");
+	fprintf(stderr, "Usage:   %s view [options] <in.bam>|<in.sam> [region1 [...]]\n\n", invocation_name);
 	fprintf(stderr, "Options: -b       output BAM\n");
 	fprintf(stderr, "         -h       print header for the SAM output\n");
 	fprintf(stderr, "         -H       print header only (no alignments)\n");

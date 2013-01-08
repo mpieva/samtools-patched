@@ -538,7 +538,7 @@ int main_phase(int argc, char *argv[])
 	}
 	if (argc == optind) {
 		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage:   samtools phase [options] <in.bam>\n\n");
+		fprintf(stderr, "Usage:   %s phase [options] <in.bam>\n\n", invocation_name);
 		fprintf(stderr, "Options: -k INT    block length [%d]\n", g.k);
 		fprintf(stderr, "         -b STR    prefix of BAMs to output [null]\n");
 		fprintf(stderr, "         -q INT    min het phred-LOD [%d]\n", g.min_varLOD);

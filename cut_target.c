@@ -155,7 +155,7 @@ int main_cut_target(int argc, char *argv[])
 		}
 	}
 	if (argc == optind) {
-		fprintf(stderr, "Usage: samtools targetcut [-Q minQ] [-i inPen] [-0 em0] [-1 em1] [-2 em2] [-f ref] <in.bam>\n");
+		fprintf(stderr, "Usage: %s targetcut [-Q minQ] [-i inPen] [-0 em0] [-1 em1] [-2 em2] [-f ref] <in.bam>\n", invocation_name);
 		return 1;
 	}
 	l = max_l = 0; cns = 0;

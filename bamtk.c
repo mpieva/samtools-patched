@@ -10,13 +10,13 @@
 
 int bam_taf2baf(int argc, char *argv[]);
 int bam_mpileup(int argc, char *argv[]);
-int bam_merge(int argc, char *argv[]);
+int bam_merge(int argc, char *argv[], int vanilla);
 int bam_index(int argc, char *argv[]);
 int bam_sort(int argc, char *argv[]);
 int bam_tview_main(int argc, char *argv[]);
 int bam_mating(int argc, char *argv[]);
 int bam_rmdup(int argc, char *argv[]);
-int bam_flagstat(int argc, char *argv[]);
+int bam_flagstat(int argc, char *argv[], int vanilla);
 int bam_flagstatx(int argc, char *argv[]);
 int bam_covstat(int argc, char *argv[]);
 int bam_fillmd(int argc, char *argv[]);
@@ -32,12 +32,13 @@ int main_bam2fq(int argc, char *argv[]);
 
 int faidx_main(int argc, char *argv[]);
 
-static int usage()
+static int usage(int vanilla)
 {
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Program: samtools (Tools for alignments in the SAM format)\n");
 	fprintf(stderr, "Version: %s\n\n", BAM_VERSION);
-	fprintf(stderr, "Usage:   samtools <command> [options]\n\n");
+	fprintf(stderr, "Usage:   %s <command> [options]\n", invocation_name);
+	if( vanilla ) fprintf(stderr, "Note:    try 'sam' instead of 'samtools'\n\n");
 	fprintf(stderr, "Command: view        SAM<->BAM conversion\n");
 	fprintf(stderr, "         sort        sort alignment file\n");
 	fprintf(stderr, "         mpileup     multi-way pileup\n");
@@ -47,11 +48,11 @@ static int usage()
 	fprintf(stderr, "         tview       text alignment viewer\n");
 #endif
 	fprintf(stderr, "         index       index alignment\n");
-	fprintf(stderr, "         idxstats    BAM index stats (r595 or later)\n");
+	fprintf(stderr, "         idxstats    BAM index stats\n");
 	fprintf(stderr, "         fixmate     fix mate information\n");
 	fprintf(stderr, "         flagstat    simple stats\n");
-	fprintf(stderr, "         flagstatx   fancy stats\n");
-	fprintf(stderr, "         covstat     coverage per read group and target\n");
+	if( !vanilla ) fprintf(stderr, "         flagstatx   fancy stats\n");
+	if( !vanilla ) fprintf(stderr, "         covstat     coverage per read group and target\n");
 	fprintf(stderr, "         calmd       recalculate MD/NM tags and '=' bases\n");
 	fprintf(stderr, "         merge       merge sorted alignments\n");
 	fprintf(stderr, "         rmdup       remove PCR duplicates\n");
@@ -69,8 +70,12 @@ Note: The Windows version of SAMtools is mainly designed for read-only\n\
 	return 1;
 }
 
+char *invocation_name = 0 ;
+
 int main(int argc, char *argv[])
 {
+    char *pt ;
+    int vanilla ;
 #ifdef _WIN32
 	setmode(fileno(stdout), O_BINARY);
 	setmode(fileno(stdin),  O_BINARY);
@@ -78,11 +83,17 @@ int main(int argc, char *argv[])
 	knet_win32_init();
 #endif
 #endif
-	if (argc < 2) return usage();
+
+    // check if we're invoked as "samtools", if so, revert to compatible
+    // behavior
+    for( pt = argv[0]; *pt ; ++pt ) if( *pt == '/' ) invocation_name = pt+1 ;
+    vanilla = strcmp(invocation_name, "samtools") == 0 ;
+
+	if (argc < 2) return usage(vanilla);
 	if (strcmp(argv[1], "view") == 0) return main_samview(argc-1, argv+1);
 	else if (strcmp(argv[1], "import") == 0) return main_import(argc-1, argv+1);
 	else if (strcmp(argv[1], "mpileup") == 0) return bam_mpileup(argc-1, argv+1);
-	else if (strcmp(argv[1], "merge") == 0) return bam_merge(argc-1, argv+1);
+	else if (strcmp(argv[1], "merge") == 0) return bam_merge(argc-1, argv+1, vanilla);
 	else if (strcmp(argv[1], "sort") == 0) return bam_sort(argc-1, argv+1);
 	else if (strcmp(argv[1], "index") == 0) return bam_index(argc-1, argv+1);
 	else if (strcmp(argv[1], "idxstats") == 0) return bam_idxstats(argc-1, argv+1);
@@ -90,9 +101,9 @@ int main(int argc, char *argv[])
 	else if (strcmp(argv[1], "faidx") == 0) return faidx_main(argc-1, argv+1);
 	else if (strcmp(argv[1], "fixmate") == 0) return bam_mating(argc-1, argv+1);
 	else if (strcmp(argv[1], "rmdup") == 0) return bam_rmdup(argc-1, argv+1);
-	else if (strcmp(argv[1], "flagstat") == 0) return bam_flagstat(argc-1, argv+1);
-	else if (strcmp(argv[1], "flagstatx") == 0) return bam_flagstatx(argc-1, argv+1);
-	else if (strcmp(argv[1], "covstat") == 0) return bam_covstat(argc-1, argv+1);
+	else if (strcmp(argv[1], "flagstat") == 0) return bam_flagstat(argc-1, argv+1, vanilla);
+	else if (strcmp(argv[1], "flagstatx") == 0 && !vanilla) return bam_flagstatx(argc-1, argv+1);
+	else if (strcmp(argv[1], "covstat") == 0 && !vanilla) return bam_covstat(argc-1, argv+1);
 	else if (strcmp(argv[1], "calmd") == 0) return bam_fillmd(argc-1, argv+1);
 	else if (strcmp(argv[1], "fillmd") == 0) return bam_fillmd(argc-1, argv+1);
 	else if (strcmp(argv[1], "reheader") == 0) return main_reheader(argc-1, argv+1);

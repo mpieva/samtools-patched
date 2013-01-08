@@ -38,7 +38,7 @@ int main_reheader(int argc, char *argv[])
 	bam_header_t *h;
 	BGZF *in;
 	if (argc != 3) {
-		fprintf(stderr, "Usage: samtools reheader <in.header.sam> <in.bam>\n");
+		fprintf(stderr, "Usage: %s reheader <in.header.sam> <in.bam>\n", invocation_name);
 		return 1;
 	}
 	{ // read the header

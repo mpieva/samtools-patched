@@ -39,6 +39,7 @@ install: all-recur
 	install -d -m 755 $(prefix)/lib
 	install -d -m 755 $(prefix)/share/man/man1
 	install -s -m 755 samtools $(prefix)/bin
+	install -s -m 755 samtools $(prefix)/bin/sam
 	install -s -m 755 razip $(prefix)/bin
 	install -s -m 755 bgzip $(prefix)/bin
 	install -s -m 755 faidx $(prefix)/bin

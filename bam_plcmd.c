@@ -505,7 +505,7 @@ int bam_mpileup(int argc, char *argv[])
 	if (use_orphan) mplp.flag &= ~MPLP_NO_ORPHAN;
 	if (argc == 1) {
 		fprintf(stderr, "\n");
-		fprintf(stderr, "Usage: samtools mpileup [options] in1.bam [in2.bam [...]]\n\n");
+		fprintf(stderr, "Usage: %s mpileup [options] in1.bam [in2.bam [...]]\n\n", invocation_name);
 		fprintf(stderr, "Input options:\n\n");
 		fprintf(stderr, "       -6           assume the quality is in the Illumina-1.3+ encoding\n");
 		fprintf(stderr, "       -A           count anomalous read pairs\n");
