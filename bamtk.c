@@ -86,6 +86,7 @@ int main(int argc, char *argv[])
 
     // check if we're invoked as "samtools", if so, revert to compatible
     // behavior
+    invocation_name = argv[0] ;
     for( pt = argv[0]; *pt ; ++pt ) if( *pt == '/' ) invocation_name = pt+1 ;
     vanilla = strcmp(invocation_name, "samtools") == 0 ;
 
