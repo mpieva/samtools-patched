@@ -269,6 +269,8 @@ char *bam_format1_core(const bam_header_t *header, const bam1_t *b, int of)
 		for (i = 0; i < 16; ++i)
 			if ((c->flag & 1<<i) && bam_flag2char_table[i])
 				kputc(bam_flag2char_table[i], &str);
+        if( !c->flag ) 
+            kputc('_', &str);
 		kputc('\t', &str);
 	}
 	if (c->tid < 0) kputsn("*\t", 2, &str);
