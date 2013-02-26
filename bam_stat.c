@@ -211,32 +211,40 @@ int bam_flagstatx(int argc, char *argv[])
 /* Maps read group to raw coverage.  Each terget sequence gets two
  * entries in the coverage array, for quality pass and quality fail, in
  * that order. */
-KHASH_MAP_INIT_STR(rg2cov, long long*)
+KHASH_MAP_INIT_STR(rg2cov, long long*);
+
+static int usage(int lng) {
+    fprintf(stderr, "Usage: %s covstat [-X|-L|-m N|-M N...] <in.bam>\n", invocation_name);
+    fprintf(stderr, "  Counts coverage (with -X) or aligned length (with -L).\n");
+    if(lng) {
+        fprintf(stderr, "  Options are: -X        Count coverage in \"X\"\n");
+        fprintf(stderr, "               -L        Count total aligned length\n");
+        fprintf(stderr, "               -m N      Consider only reads of at least N bases\n");
+        fprintf(stderr, "               -M N      Consider only reads of at most N bases\n");
+    }
+    return !lng;
+}
 
 int bam_covstat(int argc, char *argv[])
 {
 	bamFile fp;
 	bam_header_t *header;
     khash_t(rg2cov) *h = kh_init(rg2cov);
-    int norm=1;
+    int c, norm=1, min_len=0, max_len=0x7fffffff;
 
-    if(argc > 1 && !strcmp(argv[1],"-L")) {
-        norm=0;
-        argc--;
-        argv++;
-    }
-    if(argc > 1 && !strcmp(argv[1],"-X")) {
-        norm=1;
-        argc--;
-        argv++;
+	while ((c = getopt(argc, argv, "m:M:LXh?")) >= 0) {
+		switch (c) {
+            case 'L': norm=0; break;
+            case 'X': norm=1; break;
+            case 'm': min_len = atoi(optarg); break;
+            case 'M': max_len = atoi(optarg); break;
+            case 'h':
+            case '?': return usage(1);
+            default: return usage(0);
+        }
     }
 
-	if (argc == 1) {
-		fprintf(stderr, "Usage: %s covstat [-X|-L] <in.bam>\n", invocation_name);
-		fprintf(stderr, "  Counts coverage (with -X) or aligned length (with -L).\n");
-		return 1;
-	}
-	fp = strcmp(argv[1], "-")? bam_open(argv[1], "r") : bam_dopen(fileno(stdin), "r");
+	fp = optind != argc && strcmp(argv[optind], "-")? bam_open(argv[optind], "r") : bam_dopen(fileno(stdin), "r");
 	assert(fp);
 	header = bam_header_read(fp);
 
@@ -246,23 +254,26 @@ int bam_covstat(int argc, char *argv[])
 	b = bam_init1();
 	while ((ret = bam_read1(fp, b)) >= 0) {
         if (!(b->core.flag & BAM_FUNMAP) && b->core.tid >= 0 && b->core.tid < header->n_targets) {
-            char rg_[] = {0,0};
-            char *rg = (char*)bam_aux_get(b,"RG");
-            if(!rg) rg = rg_ ;
-            else if(*rg=='A'||*rg=='c'||*rg=='C') {
-                rg_[0]=rg[1];
-                rg=rg_;
-            }
-            else if(*rg=='Z'||*rg=='H') ++rg;
-            else rg = rg_ ;
+            int len = b->core.flag & BAM_FPROPER_PAIR ? b->core.isize : b->core.l_qseq ;
+            if( len >= min_len && len <= max_len ) {
+                char rg_[] = {0,0};
+                char *rg = (char*)bam_aux_get(b,"RG");
+                if(!rg) rg = rg_ ;
+                else if(*rg=='A'||*rg=='c'||*rg=='C') {
+                    rg_[0]=rg[1];
+                    rg=rg_;
+                }
+                else if(*rg=='Z'||*rg=='H') ++rg;
+                else rg = rg_ ;
 
-            k = kh_get(rg2cov, h, rg);
-            if(k==kh_end(h)) { 
-                k = kh_put(rg2cov,h,strdup(rg),&ret) ;
-                kh_val(h,k) = calloc( header->n_targets*2, sizeof(long long) );
+                k = kh_get(rg2cov, h, rg);
+                if(k==kh_end(h)) { 
+                    k = kh_put(rg2cov,h,strdup(rg),&ret) ;
+                    kh_val(h,k) = calloc( header->n_targets*2, sizeof(long long) );
+                }
+                kh_val(h,k)[ b->core.tid*2 + (b->core.flag & BAM_FQCFAIL ? 1 : 0) ] += 
+                    bam_calend(&b->core, bam1_cigar(b)) - b->core.pos ;
             }
-            kh_val(h,k)[ b->core.tid*2 + (b->core.flag & BAM_FQCFAIL ? 1 : 0) ] += 
-                bam_calend(&b->core, bam1_cigar(b)) - b->core.pos ;
         }
     }
 	bam_destroy1(b);
