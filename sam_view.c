@@ -25,6 +25,7 @@ typedef khash_t(rg) *rghash_t;
 static rghash_t g_rghash = 0;
 static int g_min_mapQ = 0, g_flag_on = 0, g_flag_off = 0;
 static int g_min_length = 0, g_max_length = INT_MAX ;
+static long g_max_num_out = LONG_MAX ;
 static float g_subsam = -1;
 static char *g_library, *g_rg;
 static void *g_bed;
@@ -118,9 +119,11 @@ static char *drop_rg(char *hdtxt, rghash_t h, int *len)
 // callback function for bam_fetch() that prints nonskipped records
 static int view_func(const bam1_t *b, void *data)
 {
-	if (!__g_skip_aln(((samfile_t*)data)->header, b))
+	if (!__g_skip_aln(((samfile_t*)data)->header, b)) {
 		samwrite((samfile_t*)data, b);
-	return 0;
+        g_max_num_out-- ;
+    }
+	return g_max_num_out > 0 ;
 }
 
 // callback function for bam_fetch() that counts nonskipped records
@@ -128,8 +131,9 @@ static int count_func(const bam1_t *b, void *data)
 {
 	if (!__g_skip_aln(((count_func_data_t*)data)->header, b)) {
 		(*((count_func_data_t*)data)->count)++;
+        g_max_num_out-- ;
 	}
-	return 0;
+	return g_max_num_out > 0 ;
 }
 
 static int usage(int is_long_help);
@@ -144,7 +148,7 @@ int main_samview(int argc, char *argv[])
 
 	/* parse command-line options */
 	strcpy(in_mode, "r"); strcpy(out_mode, "w");
-	while ((c = getopt(argc, argv, "Sbct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:m:M:YZ")) >= 0) {
+	while ((c = getopt(argc, argv, "Sbct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:m:M:YZn:")) >= 0) {
 		switch (c) {
 		case 's': g_subsam = atof(optarg); break;
 		case 'c': is_count = 1; break;
@@ -179,6 +183,7 @@ int main_samview(int argc, char *argv[])
 				  } break ;
 		case 'm': g_min_length = strtol(optarg, 0, 0); break;
 		case 'M': g_max_length = strtol(optarg, 0, 0); break;
+        case 'n': g_max_num_out = strtol(optarg, 0, 0); break;
 		case 'q': g_min_mapQ = atoi(optarg); break;
 		case 'u': compress_level = 0; break;
 		case '1': compress_level = 1; break;
@@ -255,7 +260,7 @@ int main_samview(int argc, char *argv[])
 	if (argc == optind + 1) { // convert/print the entire file
 		bam1_t *b = bam_init1();
 		int r;
-		while ((r = samread(in, b)) >= 0) { // read one alignment from `in'
+		while (count != g_max_num_out && (r = samread(in, b)) >= 0) { // read one alignment from `in'
 			if (!__g_skip_aln(in->header, b)) {
 				if (!is_count) samwrite(out, b); // write the alignment to `out'
 				count++;
@@ -340,6 +345,7 @@ static int usage(int is_long_help)
 	fprintf(stderr, "         -F INT   filtering flag, 0 for unset [0]\n");
 	fprintf(stderr, "         -m INT   minimum (insert-) length [0]\n");
 	fprintf(stderr, "         -M INT   maximum (insert-) length [inf]\n");
+	fprintf(stderr, "         -n INT   maximum number of records to output [inf]\n");
 	fprintf(stderr, "         -q INT   minimum mapping quality [0]\n");
 	fprintf(stderr, "         -l STR   only output reads in library STR [null]\n");
 	fprintf(stderr, "         -r STR   only output reads in read group STR [null]\n");
