@@ -123,7 +123,7 @@ static int view_func(const bam1_t *b, void *data)
 		samwrite((samfile_t*)data, b);
         g_max_num_out-- ;
     }
-	return g_max_num_out > 0 ;
+	return !g_max_num_out ;
 }
 
 // callback function for bam_fetch() that counts nonskipped records
@@ -133,7 +133,7 @@ static int count_func(const bam1_t *b, void *data)
 		(*((count_func_data_t*)data)->count)++;
         g_max_num_out-- ;
 	}
-	return g_max_num_out > 0 ;
+	return !g_max_num_out ;
 }
 
 static int usage(int is_long_help);
