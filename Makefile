@@ -38,18 +38,18 @@ install: all-recur
 	install -d -m 755 $(prefix)/include/bam
 	install -d -m 755 $(prefix)/lib
 	install -d -m 755 $(prefix)/share/man/man1
-	install -s -m 755 samtools $(prefix)/bin
-	install -s -m 755 samtools $(prefix)/bin/sam
-	install -s -m 755 razip $(prefix)/bin
-	install -s -m 755 bgzip $(prefix)/bin
-	install -s -m 755 faidx $(prefix)/bin
-	install    -m 644 libbam.a $(prefix)/lib
-	install    -m 644 *.h $(prefix)/include/bam/
-	install -s -m 755 bcftools/bcftools $(prefix)/bin
-	install    -m 755 bcftools/vcfutils.pl $(prefix)/bin
-	install    -m 644 samtools.1 $(prefix)/share/man/man1
-	install -s -m 755 misc/seqtk $(prefix)/bin
-	install -s -m 755 misc/wgsim $(prefix)/bin
+	install -s -m 755 -b samtools $(prefix)/bin
+	install -s -m 755 -b samtools $(prefix)/bin/sam
+	install -s -m 755 -b razip $(prefix)/bin
+	install -s -m 755 -b bgzip $(prefix)/bin
+	install -s -m 755 -b faidx $(prefix)/bin
+	install    -m 644 -b libbam.a $(prefix)/lib
+	install    -m 644    *.h $(prefix)/include/bam/
+	install -s -m 755 -b bcftools/bcftools $(prefix)/bin
+	install    -m 755    bcftools/vcfutils.pl $(prefix)/bin
+	install    -m 644    samtools.1 $(prefix)/share/man/man1
+	install -s -m 755 -b misc/seqtk $(prefix)/bin
+	install -s -m 755 -b misc/wgsim $(prefix)/bin
 
 
 

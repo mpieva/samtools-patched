@@ -662,7 +662,7 @@ extern "C" {
 	*/
 	uint8_t *bam_aux_get(const bam1_t *b, const char tag[2]);
 
-	int32_t bam_aux2i(const uint8_t *s);
+    int32_t bam_aux2i(const uint8_t *s, int32_t d);
 	float bam_aux2f(const uint8_t *s);
 	double bam_aux2d(const uint8_t *s);
 	char bam_aux2A(const uint8_t *s);

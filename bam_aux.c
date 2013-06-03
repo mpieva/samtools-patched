@@ -162,7 +162,7 @@ int bam_parse_region(bam_header_t *header, const char *str, int *ref_id, int *be
 	return *beg <= *end? 0 : -1;
 }
 
-int32_t bam_aux2i(const uint8_t *s)
+int32_t bam_aux2i(const uint8_t *s, int32_t d)
 {
 	int type;
 	if (s == 0) return 0;
@@ -172,7 +172,7 @@ int32_t bam_aux2i(const uint8_t *s)
 	else if (type == 's') return (int32_t)*(int16_t*)s;
 	else if (type == 'S') return (int32_t)*(uint16_t*)s;
 	else if (type == 'i' || type == 'I') return *(int32_t*)s;
-	else return 0;
+	else return d;
 }
 
 float bam_aux2f(const uint8_t *s)

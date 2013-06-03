@@ -42,13 +42,11 @@ static inline int __g_skip_aln(const bam_header_t *h, const bam1_t *b)
     if( (g_flag_on | g_flag_off) & ~0xffff ) {
         uint8_t *s = bam_aux_get(b, "EF");
         if( !s ) s = bam_aux_get(b, "XF");
-        flags |= bam_aux2i(s) << 16 ;
+        flags |= bam_aux2i(s,0) << 16 ;
     }
-    int z0 = bam_aux2i( bam_aux_get(b, "Z0") );
-    uint8_t *s = bam_aux_get(b, "Z1");
-    int z1 = s ? bam_aux2i(s) : INT_MAX ;
-    s = bam_aux_get(b, "Z2");
-    int z2 = s ? bam_aux2i(s) : INT_MIN ;
+    int z0 = bam_aux2i( bam_aux_get(b, "Z0"), INT_MAX );
+    int z1 = bam_aux2i( bam_aux_get(b, "Z1"), INT_MAX );
+    int z2 = bam_aux2i( bam_aux_get(b, "Z2"), INT_MIN );
 
 	if (b->core.qual < g_min_mapQ ||
 			l < g_min_length || l > g_max_length ||
@@ -269,7 +267,7 @@ int main_samview(int argc, char *argv[])
 
 	if (argc == optind + 1) { // convert/print the entire file
 		bam1_t *b = bam_init1();
-		int r;
+		int r = 0;
 		while (count != g_max_num_out && (r = samread(in, b)) >= 0) { // read one alignment from `in'
 			if (!__g_skip_aln(in->header, b)) {
 				if (!is_count) samwrite(out, b); // write the alignment to `out'
