@@ -25,6 +25,7 @@ typedef khash_t(rg) *rghash_t;
 static rghash_t g_rghash = 0;
 static int g_min_mapQ = 0, g_flag_on = 0, g_flag_off = 0;
 static int g_min_length = 0, g_max_length = INT_MAX ;
+static int g_max_z0 = INT_MAX, g_min_z1 = 0, g_max_z2 = INT_MAX ;
 static long g_max_num_out = LONG_MAX ;
 static float g_subsam = -1;
 static char *g_library, *g_rg;
@@ -43,9 +44,15 @@ static inline int __g_skip_aln(const bam_header_t *h, const bam1_t *b)
         if( !s ) s = bam_aux_get(b, "XF");
         flags |= bam_aux2i(s) << 16 ;
     }
+    int z0 = bam_aux2i( bam_aux_get(b, "Z0") );
+    uint8_t *s = bam_aux_get(b, "Z1");
+    int z1 = s ? bam_aux2i(s) : INT_MAX ;
+    s = bam_aux_get(b, "Z2");
+    int z2 = s ? bam_aux2i(s) : INT_MIN ;
 
 	if (b->core.qual < g_min_mapQ ||
 			l < g_min_length || l > g_max_length ||
+            z0 > g_max_z0 || z1 < g_min_z1 || z2 > g_max_z2 ||
 			((flags & g_flag_on) != g_flag_on) ||
 			(flags & g_flag_off))
 		return 1;
@@ -148,7 +155,7 @@ int main_samview(int argc, char *argv[])
 
 	/* parse command-line options */
 	strcpy(in_mode, "r"); strcpy(out_mode, "w");
-	while ((c = getopt(argc, argv, "Sbct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:m:M:YZn:")) >= 0) {
+	while ((c = getopt(argc, argv, "Sbct:h1Ho:q:f:F:ul:r:xX?T:R:L:s:m:M:YZn:U:C:W:")) >= 0) {
 		switch (c) {
 		case 's': g_subsam = atof(optarg); break;
 		case 'c': is_count = 1; break;
@@ -184,6 +191,9 @@ int main_samview(int argc, char *argv[])
 		case 'm': g_min_length = strtol(optarg, 0, 0); break;
 		case 'M': g_max_length = strtol(optarg, 0, 0); break;
         case 'n': g_max_num_out = strtol(optarg, 0, 0); break;
+        case 'U': g_max_z0 = strtol(optarg, 0, 0); break;
+        case 'C': g_min_z1 = strtol(optarg, 0, 0); break;
+        case 'W': g_max_z2 = strtol(optarg, 0, 0); break;
 		case 'q': g_min_mapQ = atoi(optarg); break;
 		case 'u': compress_level = 0; break;
 		case '1': compress_level = 1; break;
@@ -345,6 +355,9 @@ static int usage(int is_long_help)
 	fprintf(stderr, "         -F INT   filtering flag, 0 for unset [0]\n");
 	fprintf(stderr, "         -m INT   minimum (insert-) length [0]\n");
 	fprintf(stderr, "         -M INT   maximum (insert-) length [inf]\n");
+	fprintf(stderr, "         -U INT   maximum Z0 value (~unknownness of index) [inf]\n");
+	fprintf(stderr, "         -C INT   minimum Z1 value (~conflictedness of index) [0]\n");
+	fprintf(stderr, "         -W INT   maximum Z2 value (~wrongness of index) [inf]\n");
 	fprintf(stderr, "         -n INT   maximum number of records to output [inf]\n");
 	fprintf(stderr, "         -q INT   minimum mapping quality [0]\n");
 	fprintf(stderr, "         -l STR   only output reads in library STR [null]\n");
