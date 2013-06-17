@@ -120,20 +120,20 @@ const char *labels[] = {
 
 static const int nlabels = sizeof(labels)/sizeof(labels[0]); 
 
-void print_header()
+void print_header(FILE *hdl)
 {
     int i;
     for(i=0;i!=nlabels;i++)
-        printf("# %2d - %s\n", i+1, labels[i]);
-    printf("# ");
-    for(i=1;i!=nlabels;i++) printf("%d\t",i);
-    printf("%d\n",i);
+        fprintf(hdl, "# %2d - %s\n", i+1, labels[i]);
+    fprintf(hdl, "# ");
+    for(i=1;i!=nlabels;i++) fprintf(hdl, "%d\t",i);
+    fprintf(hdl, "%d\n",i);
 }
 
-void print_flagstat( const char* rg, char* m, bam_flagstat_t *s, int w, int total )
+void print_flagstat( FILE* hdl, const char* rg, char* m, bam_flagstat_t *s, int w, int total )
 {
-    printf("%s\t%s\t%lld\t%.2f%%\t%lld\t%lld\t%.2f%%\t%lld\t%.2f%%\t%lld\t%lld\t%.2f%%\t"
-           "%lld\t%.2f%%\t%lld\t%lld\t%lld\t%lld\t%.2f%%\t%lld\t%lld\t%.2f%%\t%lld\t%lld\n",
+    fprintf(hdl, "%s\t%s\t%lld\t%.2f%%\t%lld\t%lld\t%.2f%%\t%lld\t%.2f%%\t%lld\t%lld\t%.2f%%\t"
+            "%lld\t%.2f%%\t%lld\t%lld\t%lld\t%lld\t%.2f%%\t%lld\t%lld\t%.2f%%\t%lld\t%lld\n",
             *rg ? rg : "\"\"", m, s->n_reads[w], (float)s->n_reads[w] / total * 100.0, s->n_dup[w], 
             s->n_mapped[w], (float)s->n_mapped[w] / s->n_reads[w] * 100.0,
             s->n_map_good[w], (float)s->n_map_good[w] / s->n_reads[w] * 100.0,
@@ -147,64 +147,93 @@ void print_flagstat( const char* rg, char* m, bam_flagstat_t *s, int w, int tota
 }
 
 
+struct flagstatx_acc {
+    bam_flagstat_t total;
+    khash_t(rg2stat) *h ;
+} ;
+
+void flagstatx_init( struct flagstatx_acc *f ) {
+    memset( &f->total, 0, sizeof(bam_flagstat_t) );
+    f->h = kh_init(rg2stat);
+}
+
+void flagstatx_destroy( struct flagstatx_acc *f ) {
+    kh_destroy(rg2stat, f->h);
+}
+
+void flagstatx_step( struct flagstatx_acc *f, const char* rg, bam1_t *b ) {
+    int ret;
+    khint_t k = kh_get(rg2stat, f->h, rg);
+    if(k==kh_end(f->h)) { 
+        k = kh_put(rg2stat,f->h,strdup(rg),&ret) ;
+        memset(&kh_val(f->h,k), 0, sizeof(bam_flagstat_t));
+    }
+    bam_flagstat_t *s = &kh_val(f->h,k);
+    flagstat_loop(s, &b->core);
+    flagstat_loop(&f->total, &b->core);
+}
+
+void flagstatx_print( struct flagstatx_acc *f, FILE *hdl )
+{
+    khint_t k;
+    int tot = f->total.n_reads[0] + f->total.n_reads[1];
+    print_header(hdl);
+	for (k = kh_begin(f->h); k != kh_end(f->h); ++k) {
+        if(kh_exist(f->h,k)) {
+            print_flagstat(hdl, kh_key(f->h,k), "pass", &kh_value(f->h,k), 0, tot);
+            print_flagstat(hdl, kh_key(f->h,k), "fail", &kh_value(f->h,k), 1, tot);
+        }
+    }
+    print_flagstat(hdl, "TOTAL", "pass", &f->total, 0, tot);
+    print_flagstat(hdl, "TOTAL", "fail", &f->total, 1, tot);
+}
+
+inline static const char *get_rg( bam1_t *b )
+{
+    static char rg[2];
+    rg[0]=rg[1]=0;
+    char *r = (char*)bam_aux_get(b,"RG");
+    if(!r) return rg; 
+    else if(*r=='A'||*r=='c'||*r=='C') {
+        rg[0]=r[1];
+        return rg;
+    }
+    else if(*r=='Z'||*r=='H') return r+1;
+    else return rg;
+}
+
+
 int bam_flagstatx(int argc, char *argv[])
 {
 	bamFile fp;
 	bam_header_t *header;
-    bam_flagstat_t total;
-    memset( &total, 0, sizeof(bam_flagstat_t) );
+    struct flagstatx_acc flagstatx_acc ;
+	bam1_t *b;
+    int ret;
 
-    khash_t(rg2stat) *h = kh_init(rg2stat);
 	if (argc == 1) {
 		fprintf(stderr, "Usage: %s flagstatx <in.bam>\n", invocation_name);
 		return 1;
 	}
+
 	fp = strcmp(argv[1], "-")? bam_open(argv[1], "r") : bam_dopen(fileno(stdin), "r");
 	assert(fp);
 	header = bam_header_read(fp);
 
-	bam1_t *b;
-    khint_t k;
-	int ret;
+    flagstatx_init( &flagstatx_acc ) ;
+
 	b = bam_init1();
 	while ((ret = bam_read1(fp, b)) >= 0) {
-        char rg_[] = {0,0};
-        char *rg = (char*)bam_aux_get(b,"RG");
-        if(!rg) rg = rg_ ;
-        else if(*rg=='A'||*rg=='c'||*rg=='C') {
-            rg_[0]=rg[1];
-            rg=rg_;
-        }
-        else if(*rg=='Z'||*rg=='H') ++rg;
-        else rg = rg_ ;
-
-        k = kh_get(rg2stat, h, rg);
-        if(k==kh_end(h)) { 
-            k = kh_put(rg2stat,h,strdup(rg),&ret) ;
-            memset(&kh_val(h,k), 0, sizeof(bam_flagstat_t));
-        }
-        bam_flagstat_t *s = &kh_val(h,k);
-		flagstat_loop(s, &b->core);
-        flagstat_loop(&total, &b->core);
+        flagstatx_step( &flagstatx_acc, get_rg(b), b ) ;
     }
 	bam_destroy1(b);
 	if (ret != -1)
 		fprintf(stderr, "[bam_flagstat_core] Truncated file? Continue anyway.\n");
 
-    int tot = total.n_reads[0]+total.n_reads[1];
-    print_header();
-	for (k = kh_begin(h); k != kh_end(h); ++k) {
-        if(kh_exist(h,k)) {
-            print_flagstat(kh_key(h,k), "pass", &kh_value(h,k), 0, tot);
-            print_flagstat(kh_key(h,k), "fail", &kh_value(h,k), 1, tot);
-        }
-    }
-    print_flagstat("TOTAL", "pass", &total, 0, tot);
-    print_flagstat("TOTAL", "fail", &total, 1, tot);
-
+    flagstatx_print( &flagstatx_acc, stdout );
+    flagstatx_destroy( &flagstatx_acc );
 	bam_header_destroy(header);
 	bam_close(fp);
-    kh_destroy(rg2stat, h);
 	return 0;
 }
 
@@ -225,19 +254,91 @@ static int usage(int lng) {
     return !lng;
 }
 
+struct covstat_acc {
+    khash_t(rg2cov) *h;
+    int min_len, max_len, n_targets, norm;
+} ;
+
+void covstat_init( struct covstat_acc *c )
+{
+    c->h = kh_init(rg2cov);
+    c->min_len=0;
+    c->max_len=0x7fffffff;
+    c->norm=1;
+}
+
+void covstat_step( struct covstat_acc *c, const char *rg, bam_header_t *header, bam1_t *b ) {
+    khint_t k;
+    int ret;
+    if (!(b->core.flag & BAM_FUNMAP) && b->core.tid >= 0 && b->core.tid < header->n_targets) {
+        int len = b->core.flag & BAM_FPROPER_PAIR ? b->core.isize : b->core.l_qseq ;
+        if( len >= c->min_len && len <= c->max_len ) {
+            k = kh_get(rg2cov, c->h, rg);
+            if(k==kh_end(c->h)) { 
+                k = kh_put(rg2cov,c->h,strdup(rg),&ret) ;
+                kh_val(c->h,k) = calloc( header->n_targets*2, sizeof(long long) );
+            }
+            kh_val(c->h,k)[ b->core.tid*2 + (b->core.flag & BAM_FQCFAIL ? 1 : 0) ] += 
+                bam_calend(&b->core, bam1_cigar(b)) - b->core.pos ;
+        }
+    }
+}
+
+void covstat_print( FILE* f, struct covstat_acc *acc, bam_header_t *header ) {
+    khint_t k;
+    int i;
+    fputs("# chr\tQC\t",f);
+    for (k = kh_begin(acc->h); k != kh_end(acc->h); ++k) {
+        if(kh_exist(acc->h,k)) {
+            fputs(kh_key(acc->h,k),f);
+            fputc('\t',f);
+        }
+    }
+    fputs("TOTAL\n",f);
+
+    for(i=0;i!=2*header->n_targets;++i) {
+        long long t=0;
+        fputs(header->target_name[i/2], f);
+        fputs(i&1 ? "\tfail\t" : "\tpass\t", f);
+
+        for (k = kh_begin(acc->h); k != kh_end(acc->h); ++k) {
+            if(kh_exist(acc->h,k)) {
+                if (acc->norm)
+                    fprintf(f,"%.2f\t", (double)kh_value(acc->h,k)[i] / header->target_len[i/2]) ;
+                else
+                    fprintf(f,"%lld\t", kh_value(acc->h,k)[i]) ;
+                t += kh_value(acc->h,k)[i] ;
+            }
+        }
+        if (acc->norm)
+            fprintf(f,"%.2f\n", (double)t / header->target_len[i/2]) ;
+        else
+            fprintf(f,"%lld\n", t) ;
+    }
+}
+
+void covstat_destroy(struct covstat_acc *c) {
+    khint_t k;
+    for (k = kh_begin(c->h); k != kh_end(c->h); ++k)
+        if(kh_exist(c->h,k))
+            free(kh_value(c->h,k));
+    kh_destroy(rg2cov, c->h);
+}
+
 int bam_covstat(int argc, char *argv[])
 {
 	bamFile fp;
 	bam_header_t *header;
-    khash_t(rg2cov) *h = kh_init(rg2cov);
-    int c, norm=1, min_len=0, max_len=0x7fffffff;
+    int c;
+    struct covstat_acc covstat_acc ;
+    covstat_init( &covstat_acc ) ;
 
 	while ((c = getopt(argc, argv, "m:M:LXh?")) >= 0) {
 		switch (c) {
-            case 'L': norm=0; break;
-            case 'X': norm=1; break;
-            case 'm': min_len = atoi(optarg); break;
-            case 'M': max_len = atoi(optarg); break;
+            case 'L': covstat_acc.norm=0; break;
+            case 'X': covstat_acc.norm=1; break;
+            case 'm': covstat_acc.min_len = atoi(optarg); break;
+            case 'M': covstat_acc.max_len = atoi(optarg); break;
             case 'h':
             case '?': return usage(1);
             default: return usage(0);
@@ -249,72 +350,18 @@ int bam_covstat(int argc, char *argv[])
 	header = bam_header_read(fp);
 
 	bam1_t *b;
-    khint_t k;
-	int ret,i;
+	int ret;
 	b = bam_init1();
 	while ((ret = bam_read1(fp, b)) >= 0) {
-        if (!(b->core.flag & BAM_FUNMAP) && b->core.tid >= 0 && b->core.tid < header->n_targets) {
-            int len = b->core.flag & BAM_FPROPER_PAIR ? b->core.isize : b->core.l_qseq ;
-            if( len >= min_len && len <= max_len ) {
-                char rg_[] = {0,0};
-                char *rg = (char*)bam_aux_get(b,"RG");
-                if(!rg) rg = rg_ ;
-                else if(*rg=='A'||*rg=='c'||*rg=='C') {
-                    rg_[0]=rg[1];
-                    rg=rg_;
-                }
-                else if(*rg=='Z'||*rg=='H') ++rg;
-                else rg = rg_ ;
-
-                k = kh_get(rg2cov, h, rg);
-                if(k==kh_end(h)) { 
-                    k = kh_put(rg2cov,h,strdup(rg),&ret) ;
-                    kh_val(h,k) = calloc( header->n_targets*2, sizeof(long long) );
-                }
-                kh_val(h,k)[ b->core.tid*2 + (b->core.flag & BAM_FQCFAIL ? 1 : 0) ] += 
-                    bam_calend(&b->core, bam1_cigar(b)) - b->core.pos ;
-            }
-        }
+        covstat_step( &covstat_acc, get_rg(b), header, b ) ;
     }
 	bam_destroy1(b);
 	if (ret != -1)
 		fprintf(stderr, "[bam_flagstat_core] Truncated file? Continue anyway.\n");
 
-    fputs("# chr\tQC\t",stdout);
-    for (k = kh_begin(h); k != kh_end(h); ++k) {
-        if(kh_exist(h,k)) {
-            fputs(kh_key(h,k),stdout);
-            fputc('\t',stdout);
-        }
-    }
-    fputs("TOTAL\n",stdout);
-
-    for(i=0;i!=2*header->n_targets;++i) {
-        long long t=0;
-        fputs(header->target_name[i/2], stdout);
-        fputs(i&1 ? "\tfail\t" : "\tpass\t", stdout);
-
-        for (k = kh_begin(h); k != kh_end(h); ++k) {
-            if(kh_exist(h,k)) {
-                if (norm)
-                    printf("%.2f\t", (double)kh_value(h,k)[i] / header->target_len[i/2]) ;
-                else
-                    printf("%lld\t", kh_value(h,k)[i]) ;
-                t += kh_value(h,k)[i] ;
-            }
-        }
-        if (norm)
-            printf("%.2f\n", (double)t / header->target_len[i/2]) ;
-        else
-            printf("%lld\n", t) ;
-    }
-
+    covstat_print(stdout, &covstat_acc, header);
+    covstat_destroy(&covstat_acc);
 	bam_header_destroy(header);
 	bam_close(fp);
-
-    for (k = kh_begin(h); k != kh_end(h); ++k)
-        if(kh_exist(h,k))
-            free(kh_value(h,k));
-    kh_destroy(rg2cov, h);
 	return 0;
 }
