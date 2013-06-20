@@ -184,6 +184,9 @@ static void group_smpl(mplp_pileup_t *m, bam_sample_t *sm, kstring_t *buf,
 	}
 }
 
+#define STR(exp) #exp
+#define XSTR(exp) STR(exp)
+
 static int mpileup(mplp_conf_t *conf, int n, char **fn)
 {
 	extern void *bcf_call_add_rg(void *rghash, const char *hdtext, const char *list);
@@ -272,7 +275,7 @@ static int mpileup(mplp_conf_t *conf, int n, char **fn)
 		bh->l_smpl = s.l;
 		bh->sname = malloc(s.l);
 		memcpy(bh->sname, s.s, s.l);
-		bh->txt = malloc(strlen(BAM_VERSION) + 64);
+		bh->txt = malloc(strlen(XSTR(GIT_VERSION)) + 64);
 		bh->l_txt = 1 + sprintf(bh->txt, "##samtoolsVersion=%s\n", BAM_VERSION);
 		free(s.s);
 		bcf_hdr_sync(bh);

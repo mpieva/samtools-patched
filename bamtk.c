@@ -32,11 +32,14 @@ int main_bam2fq(int argc, char *argv[]);
 
 int faidx_main(int argc, char *argv[]);
 
+#define STR(exp) #exp
+#define XSTR(exp) STR(exp)
+
 static int usage(int vanilla)
 {
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Program: samtools (Tools for alignments in the SAM format)\n");
-	fprintf(stderr, "Version: %s\n\n", BAM_VERSION);
+	fprintf(stderr, "Version: %s\n\n", XSTR(GIT_VERSION));
 	fprintf(stderr, "Usage:   %s <command> [options]\n", invocation_name);
 	if( vanilla ) fprintf(stderr, "Note:    try 'sam' instead of 'samtools'\n\n");
 	fprintf(stderr, "Command: view        SAM<->BAM conversion\n");
