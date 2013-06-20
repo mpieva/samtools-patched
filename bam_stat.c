@@ -244,7 +244,7 @@ void covstat_step( struct covstat_acc *c, const char *rg, bam_header_t *header, 
     }
 }
 
-void covstat_print( FILE* f, struct covstat_acc *acc, bam_header_t *header ) {
+void covstat_print( struct covstat_acc *acc, FILE* f, bam_header_t *header ) {
     khint_t k;
     int i;
     fputs("# chr\tQC\t",f);
@@ -319,7 +319,7 @@ int bam_covstat(int argc, char *argv[])
 	if (ret != -1)
 		fprintf(stderr, "[bam_flagstat_core] Truncated file? Continue anyway.\n");
 
-    covstat_print(stdout, &covstat_acc, header);
+    covstat_print(&covstat_acc, stdout, header);
     covstat_destroy(&covstat_acc);
 	bam_header_destroy(header);
 	bam_close(fp);

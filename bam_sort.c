@@ -102,6 +102,7 @@ static void swap_header_text(bam_header_t *h1, bam_header_t *h2)
 
 struct bam_sink {
     bamFile fp;
+    bam_header_t *hdr;
     struct flagstatx_acc fa;
     struct covstat_acc ca;
 } ;
@@ -121,6 +122,7 @@ void bam_sink_init_file( struct bam_sink *s, const char* out, int flag )
 inline void bam_put_header( struct bam_sink *s, bam_header_t *h )
 {
     if(s->fp) bam_header_write(s->fp, h);
+    s->hdr = h;
 }
 
 inline void bam_put_rec( struct bam_sink *s, bam_header_t *h, bam1_t *b )
@@ -137,6 +139,7 @@ inline void bam_sink_close( struct bam_sink *s )
 	bam_close(s->fp);
     if(s->fa.h) flagstatx_destroy(&s->fa);
     if(s->ca.h) covstat_destroy(&s->ca);
+    if(s->hdr) bam_header_destroy(s->hdr);
 }
 
 int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers, int n, char * const *fn,
@@ -155,7 +158,7 @@ int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers
 		tamFile fpheaders = sam_open(headers);
 		if (fpheaders == 0) {
 			const char *message = strerror(errno);
-			fprintf(stderr, "[bam_merge_core] cannot open '%s': %s\n", headers, message);
+			fprintf(stderr, "[%s] cannot open '%s': %s\n", __func__, headers, message);
 			return -1;
 		}
 		hheaders = sam_header_read(fpheaders);
@@ -187,7 +190,7 @@ int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers
 		fp[i] = bam_open(fn[i], "r");
 		if (fp[i] == 0) {
 			int j;
-			fprintf(stderr, "[bam_merge_core] fail to open file %s\n", fn[i]);
+			fprintf(stderr, "[%s] fail to open file %s\n", __func__, fn[i]);
 			for (j = 0; j < i; ++j) bam_close(fp[j]);
 			free(fp); free(heap);
 			// FIXME: possible memory leak
@@ -202,8 +205,8 @@ int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers
 
 			for (j = 0; j < min_n_targets; ++j)
 				if (strcmp(hout->target_name[j], hin->target_name[j]) != 0) {
-					fprintf(stderr, "[bam_merge_core] different target sequence name: '%s' != '%s' in file '%s'\n",
-							hout->target_name[j], hin->target_name[j], fn[i]);
+					fprintf(stderr, "[%s] different target sequence name: '%s' != '%s' in file '%s'\n",
+							__func__, hout->target_name[j], hin->target_name[j], fn[i]);
 					return -1;
 				}
 
@@ -225,12 +228,12 @@ int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers
 		// of reference information.
 		if (hheaders->n_targets > 0) {
 			if (hout->n_targets != hheaders->n_targets) {
-				fprintf(stderr, "[bam_merge_core] number of @SQ headers in '%s' differs from number of target sequences\n", headers);
+				fprintf(stderr, "[%s] number of @SQ headers in '%s' differs from number of target sequences\n", __func__, headers);
 				if (!reg) return -1;
 			}
 			for (j = 0; j < hout->n_targets; ++j)
 				if (strcmp(hout->target_name[j], hheaders->target_name[j]) != 0) {
-					fprintf(stderr, "[bam_merge_core] @SQ header '%s' in '%s' differs from target sequence\n", hheaders->target_name[j], headers);
+					fprintf(stderr, "[%s] @SQ header '%s' in '%s' differs from target sequence\n", __func__, hheaders->target_name[j], headers);
 					if (!reg) return -1;
 				}
 		}
@@ -264,7 +267,6 @@ int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers
 		else h->pos = HEAP_EMPTY;
 	}
 	bam_put_header(fpout, hout);
-	bam_header_destroy(hout);
 
 	ks_heapmake(heap, n, heap);
 	while (heap->pos != HEAP_EMPTY) {
@@ -282,7 +284,7 @@ int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers
 			heap->pos = HEAP_EMPTY;
 			free(heap->b->data); free(heap->b);
 			heap->b = 0;
-		} else fprintf(stderr, "[bam_merge_core] '%s' is truncated. Continue anyway.\n", fn[heap->i]);
+		} else fprintf(stderr, "[%s] '%s' is truncated. Continue anyway.\n", __func__, fn[heap->i]);
 		ks_heapadjust(heap, 0, n, heap);
 	}
 
@@ -313,8 +315,9 @@ int bam_merge(int argc, char *argv[], int vanilla)
 {
 	int c, is_by_qname = 0, flag = 0, ret = 0;
 	char *fn_headers = NULL, *reg = 0, *oname = "-";
+    char *fn_index = 0, *fn_cstat = 0, *fn_xstat = 0;
 
-	while ((c = getopt(argc, argv, vanilla?"h:nru1R:":"h:nru1R:fo:")) >= 0) {
+	while ((c = getopt(argc, argv, vanilla?"h:nru1R:":"h:nru1R:fo:i:x:c:")) >= 0) {
 		switch (c) {
 		case 'r': flag |= MERGE_RG; break;
 		case 'f': flag |= MERGE_FORCE; break;
@@ -324,6 +327,9 @@ int bam_merge(int argc, char *argv[], int vanilla)
 		case 'u': flag |= MERGE_UNCOMP; break;
 		case 'R': reg = strdup(optarg); break;
         case 'o': oname = optarg; break;
+        case 'i': fn_index = optarg; break;
+        case 'x': fn_xstat = optarg; break;
+        case 'c': fn_cstat = optarg; break;
 		}
 	}
 	if (optind >= argc) {
@@ -336,6 +342,9 @@ int bam_merge(int argc, char *argv[], int vanilla)
         if( !vanilla ) {
             fprintf(stderr, "         -o FILE  write to FILE [stdout]\n");
             fprintf(stderr, "         -f       overwrite the output BAM if exist\n");
+            fprintf(stderr, "         -i FILE  also write an index to FILE\n");
+            fprintf(stderr, "         -x FILE  also perform `flagstatx' and write to FILE\n");
+            fprintf(stderr, "         -c FILE  also perform `covstat' and write to FILE\n");
         }
 		fprintf(stderr, "         -1       compress level 1\n");
 		fprintf(stderr, "         -R STR   merge file in the specified region STR [all]\n");
@@ -353,7 +362,38 @@ int bam_merge(int argc, char *argv[], int vanilla)
             fprintf(stderr, "[%s] File '%s' exists. Please apply '-f' to overwrite. Abort.\n", __func__, oname);
             return 1;
         }
-        if (bam_merge_core(is_by_qname, oname, fn_headers, argc - optind, argv + optind, flag, reg) < 0) ret = 1;
+        // if (bam_merge_core(is_by_qname, oname, fn_headers, argc - optind, argv + optind, flag, reg) < 0) ret = 1;
+
+        struct bam_sink fpout;
+        bam_sink_init_file(&fpout, oname, flag);
+        if( fn_cstat ) covstat_init(&fpout.ca);
+        if( fn_xstat ) flagstatx_init(&fpout.fa);
+        // XXX if( fn_index ) ..._init(&fpout...);
+
+        int r = bam_merge_core_ext(is_by_qname, &fpout, fn_headers, argc - optind, argv + optind, flag, reg);
+        if( fn_cstat ) {
+            FILE *fp = fopen( fn_cstat, "w" );
+            if( !fp ) { 
+                fprintf(stderr, "[%s] Cannot write file `%s': %s\n", __func__, fn_cstat, strerror(errno));
+                return 1;
+            }
+            covstat_print( &fpout.ca, fp, fpout.hdr ) ;
+            fclose(fp) ;
+        }
+        if( fn_xstat ) {
+            FILE *fp = fopen( fn_xstat, "w" );
+            if( !fp ) { 
+                fprintf(stderr, "[%s] Cannot write file `%s': %s\n", __func__, fn_xstat, strerror(errno));
+                return 1;
+            }
+            flagstatx_print( &fpout.fa, fp ) ;
+            fclose(fp) ;
+        }
+        if( fn_index ) {
+            // XXX
+        }
+        bam_sink_close(&fpout);
+        return r < 1 ;
     }
 	free(reg);
 	free(fn_headers);

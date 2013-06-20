@@ -18,6 +18,7 @@ struct flagstatx_acc {
 
 void flagstatx_init( struct flagstatx_acc* );
 void flagstatx_destroy( struct flagstatx_acc* );
+void flagstatx_print( struct flagstatx_acc*, FILE* );
 void flagstatx_step( struct flagstatx_acc*, const char* rg, bam1_t* );
 
 
@@ -33,7 +34,7 @@ struct covstat_acc {
 
 void covstat_init( struct covstat_acc* );
 void covstat_step( struct covstat_acc*, const char *rg, bam_header_t*, bam1_t* );
-void covstat_print( FILE*, struct covstat_acc*, bam_header_t* );
+void covstat_print( struct covstat_acc*, FILE*, bam_header_t* );
 void covstat_destroy( struct covstat_acc* );
 
 inline static const char *get_rg( bam1_t *b )
