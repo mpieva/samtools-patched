@@ -150,6 +150,9 @@ static void fill_missing(bam_index_t *idx)
 	}
 }
 
+// Sweet.  This code would be much simpler if it could generate an index
+// while *writing* a bam file.  Which is what we want anyway.  But
+// cannot do right now.  Bah!
 bam_index_t *bam_index_core(bamFile fp)
 {
 	bam1_t *b;
@@ -718,13 +721,13 @@ int bam_iter_read(bamFile fp, bam_iter_t iter, bam1_t *b)
 
 int bam_fetch(bamFile fp, const bam_index_t *idx, int tid, int beg, int end, void *data, bam_fetch_f func)
 {
-	int ret;
-	bam_iter_t iter;
-	bam1_t *b;
-	b = bam_init1();
-	iter = bam_iter_query(idx, tid, beg, end);
-	while ((ret = bam_iter_read(fp, iter, b)) >= 0) if( func(b, data) ) break ;
-	bam_iter_destroy(iter);
-	bam_destroy1(b);
-	return (ret == -1)? 0 : ret;
+    int ret;
+    bam_iter_t iter;
+    bam1_t *b;
+    b = bam_init1();
+    iter = bam_iter_query(idx, tid, beg, end);
+    while ((ret = bam_iter_read(fp, iter, b)) >= 0) if( func(b, data) ) break ;
+    bam_iter_destroy(iter);
+    bam_destroy1(b);
+    return (ret == -1)? 0 : ret;
 }

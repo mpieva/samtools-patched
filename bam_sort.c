@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-#include "bam.h"
 #include "ksort.h"
+#include "bam_stat.h"
 
 static int g_is_by_qname = 0;
 static int g_ignore_warts = 0;
@@ -95,11 +95,54 @@ static void swap_header_text(bam_header_t *h1, bam_header_t *h2)
 
   @discussion Padding information may NOT correctly maintained. This
   function is NOT thread safe.
+
+  @discussion Calling this "core" is an euphemism.  Merging should never
+  have been conflated with file I/O.
  */
-int bam_merge_core(int by_qname, const char *out, const char *headers, int n, char * const *fn,
+
+struct bam_sink {
+    bamFile fp;
+    struct flagstatx_acc fa;
+    struct covstat_acc ca;
+} ;
+
+void bam_sink_init_file( struct bam_sink *s, const char* out, int flag ) 
+{
+    memset( s, 0, sizeof(struct bam_sink) );
+	if (flag & MERGE_UNCOMP) s->fp = strcmp(out, "-")? bam_open(out, "wu") : bam_dopen(fileno(stdout), "wu");
+	else if (flag & MERGE_LEVEL1) s->fp = strcmp(out, "-")? bam_open(out, "w1") : bam_dopen(fileno(stdout), "w1");
+	else s->fp = strcmp(out, "-")? bam_open(out, "w") : bam_dopen(fileno(stdout), "w");
+	if (s->fp == 0) {
+		fprintf(stderr, "[%s] fail to create the output file.\n", __func__);
+		exit(1);
+	}
+}
+
+inline void bam_put_header( struct bam_sink *s, bam_header_t *h )
+{
+    if(s->fp) bam_header_write(s->fp, h);
+}
+
+inline void bam_put_rec( struct bam_sink *s, bam_header_t *h, bam1_t *b )
+{
+    const char *rg = get_rg(b);
+    if(s->fp) bam_write1_core(s->fp, &b->core, b->data_len, b->data);
+    // index?
+    if(s->fa.h) flagstatx_step(&s->fa, rg, b);
+    if(s->ca.h && h) covstat_step(&s->ca, rg, h, b);
+}
+
+inline void bam_sink_close( struct bam_sink *s ) 
+{
+	bam_close(s->fp);
+    if(s->fa.h) flagstatx_destroy(&s->fa);
+    if(s->ca.h) covstat_destroy(&s->ca);
+}
+
+int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers, int n, char * const *fn,
 					int flag, const char *reg)
 {
-	bamFile fpout, *fp;
+	bamFile *fp;
 	heap1_t *heap;
 	bam_header_t *hout = 0;
 	bam_header_t *hheaders = NULL;
@@ -220,14 +263,7 @@ int bam_merge_core(int by_qname, const char *out, const char *headers, int n, ch
 		}
 		else h->pos = HEAP_EMPTY;
 	}
-	if (flag & MERGE_UNCOMP) fpout = strcmp(out, "-")? bam_open(out, "wu") : bam_dopen(fileno(stdout), "wu");
-	else if (flag & MERGE_LEVEL1) fpout = strcmp(out, "-")? bam_open(out, "w1") : bam_dopen(fileno(stdout), "w1");
-	else fpout = strcmp(out, "-")? bam_open(out, "w") : bam_dopen(fileno(stdout), "w");
-	if (fpout == 0) {
-		fprintf(stderr, "[%s] fail to create the output file.\n", __func__);
-		return -1;
-	}
-	bam_header_write(fpout, hout);
+	bam_put_header(fpout, hout);
 	bam_header_destroy(hout);
 
 	ks_heapmake(heap, n, heap);
@@ -238,7 +274,7 @@ int bam_merge_core(int by_qname, const char *out, const char *headers, int n, ch
 			if (rg) bam_aux_del(b, rg);
 			bam_aux_append(b, "RG", 'Z', RG_len[heap->i] + 1, (uint8_t*)RG[heap->i]);
 		}
-		bam_write1_core(fpout, &b->core, b->data_len, b->data);
+		bam_put_rec(fpout, 0, b);
 		if ((j = bam_iter_read(fp[heap->i], iter[heap->i], b)) >= 0) {
 			heap->pos = ((uint64_t)b->core.tid<<32) | (uint32_t)((int)b->core.pos+1)<<1 | bam1_strand(b);
 			heap->idx = idx++;
@@ -258,10 +294,20 @@ int bam_merge_core(int by_qname, const char *out, const char *headers, int n, ch
 		bam_iter_destroy(iter[i]);
 		bam_close(fp[i]);
 	}
-	bam_close(fpout);
 	free(fp); free(heap); free(iter);
 	return 0;
 }
+
+int bam_merge_core(int by_qname, const char *out, const char *headers, int n, char * const *fn,
+					int flag, const char *reg)
+{
+    struct bam_sink fpout;
+    bam_sink_init_file(&fpout, out, flag);
+    int r = bam_merge_core_ext(by_qname, &fpout, headers, n, fn, flag, reg);
+    bam_sink_close(&fpout);
+    return r;
+}
+
 
 int bam_merge(int argc, char *argv[], int vanilla)
 {
@@ -467,8 +513,8 @@ usage:
     fprintf(stderr, "Usage:   %s sort [-on] [-m <maxMem>] <in.bam> <out.prefix>\n", invocation_name);
     fprintf(stderr, "Options: -n       sort by read names\n");
     fprintf(stderr, "         -o       write output to stdout\n");
-    fprintf(stderr, "         -m NUM   use NUM bytes of memory (%ld%c)\n",
-        max_mem >> 32 ? max_mem >> 30 : max_mem >> 22 ? max_mem >> 20 : max_mem >> 10,
-        max_mem >> 32 ?           'G' : max_mem >> 22 ?           'M' :           'k' ) ;
+    fprintf(stderr, "         -m NUM   use NUM bytes of memory (%ld%c)\n", (long)(
+        max_mem >> 31 ? max_mem >> 30 : max_mem >> 22 ? max_mem >> 20 : max_mem >> 10),
+        max_mem >> 31 ?           'G' : max_mem >> 22 ?           'M' :           'k' ) ;
     return 1;
 }
