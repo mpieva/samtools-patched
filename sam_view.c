@@ -56,10 +56,9 @@ static inline int __g_skip_aln(const bam_header_t *h, const bam1_t *b)
 		return 1;
 	if (g_bed && b->core.tid >= 0 && !bed_overlap(g_bed, h->target_name[b->core.tid], b->core.pos, bam_calend(&b->core, bam1_cigar(b))))
 		return 1;
-	if (g_subsam > 0.) {
-		int x = (int)(g_subsam + .499);
-		uint32_t k = __ac_X31_hash_string(bam1_qname(b)) + x;
-		if (k%1024 / 1024.0 >= g_subsam - x) return 1;
+	if (g_subsam >= 0.) {
+		uint32_t k = __ac_X31_hash_string(bam1_qname(b));
+		if ((k&0xffff) >= g_subsam*0x10000) return 1;
 	}
 	if (g_rg || g_rghash) {
 		uint8_t *s = bam_aux_get(b, "RG");
