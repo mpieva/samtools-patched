@@ -12,5 +12,6 @@ misc/seqtk
 misc/wgsim
 razip
 samtools
+sam
 
 tags

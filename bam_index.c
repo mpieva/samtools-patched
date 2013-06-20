@@ -150,95 +150,123 @@ static void fill_missing(bam_index_t *idx)
 	}
 }
 
-// Sweet.  This code would be much simpler if it could generate an index
-// while *writing* a bam file.  Which is what we want anyway.  But
-// cannot do right now.  Bah!
+struct index_acc {
+	bam_index_t *idx;
+
+	uint32_t last_bin, save_bin;
+	int32_t last_coor, last_tid, save_tid;
+	uint64_t save_off, last_off, n_mapped, n_unmapped, off_beg, off_end, n_no_coor;
+};
+
+void index_acc_init( struct index_acc *a, int32_t n_targets, int64_t off0 ) {
+    int i;
+	a->idx = (bam_index_t*)calloc(1, sizeof(bam_index_t));
+	a->idx->n = n_targets;
+	a->idx->index = (khash_t(i)**)calloc(a->idx->n, sizeof(void*));
+	for (i = 0; i < a->idx->n; ++i) a->idx->index[i] = kh_init(i);
+	a->idx->index2 = (bam_lidx_t*)calloc(a->idx->n, sizeof(bam_lidx_t));
+
+	a->save_bin = a->save_tid = a->last_tid = a->last_bin = 0xffffffffu;
+	a->save_off = a->last_off = off0; a->last_coor = 0xffffffffu;
+	a->n_mapped = a->n_unmapped = a->n_no_coor = a->off_end = 0;
+	a->off_beg = a->off_end = off0;
+}
+
+bam_index_t *index_acc_destroy( struct index_acc *a ) {
+    return a->idx;
+}
+
+// Arguments are the accumulator, the current record, the position in
+// the file of the record *after* b.  Return 1 if the enclosing loop
+// should be left.
+
+int index_acc_step_A( struct index_acc *acc, bam1_t *b, int64_t bam_told )
+{
+	bam1_core_t *c = &b->core;
+    if (c->tid < 0) ++acc->n_no_coor;
+    if (acc->last_tid < c->tid || (acc->last_tid >= 0 && c->tid < 0)) { // change of chromosomes
+        acc->last_tid = c->tid;
+        acc->last_bin = 0xffffffffu;
+    } else if ((uint32_t)acc->last_tid > (uint32_t)c->tid) {
+        fprintf(stderr, "[bam_index_core] the alignment is not sorted (%s): %d-th chr > %d-th chr\n",
+                bam1_qname(b), acc->last_tid+1, c->tid+1);
+        exit(1);
+    } else if ((int32_t)c->tid >= 0 && acc->last_coor > c->pos) {
+        fprintf(stderr, "[bam_index_core] the alignment is not sorted (%s): %u > %u in %d-th chr\n",
+                bam1_qname(b), acc->last_coor, c->pos, c->tid+1);
+        exit(1);
+    }
+    if (c->tid >= 0 && !(c->flag & BAM_FUNMAP)) insert_offset2(&acc->idx->index2[b->core.tid], b, acc->last_off);
+    if (c->bin != acc->last_bin) { // then possibly write the binning index
+        if (acc->save_bin != 0xffffffffu) // save_bin==0xffffffffu only happens to the first record
+            insert_offset(acc->idx->index[acc->save_tid], acc->save_bin, acc->save_off, acc->last_off);
+        if (acc->last_bin == 0xffffffffu && acc->save_tid != 0xffffffffu) { // write the meta element
+            acc->off_end = acc->last_off;
+            insert_offset(acc->idx->index[acc->save_tid], BAM_MAX_BIN, acc->off_beg, acc->off_end);
+            insert_offset(acc->idx->index[acc->save_tid], BAM_MAX_BIN, acc->n_mapped, acc->n_unmapped);
+            acc->n_mapped = acc->n_unmapped = 0;
+            acc->off_beg = acc->off_end;
+        }
+        acc->save_off = acc->last_off;
+        acc->save_bin = acc->last_bin = c->bin;
+        acc->save_tid = c->tid;
+        if (c->tid < 0) return 1;
+    }
+    if (bam_told <= acc->last_off) {
+        fprintf(stderr, "[bam_index_core] bug in BGZF/RAZF: %llx < %llx\n",
+                (unsigned long long)bam_told, (unsigned long long)acc->last_off);
+        exit(1);
+    }
+    if (c->flag & BAM_FUNMAP) ++acc->n_unmapped;
+    else ++acc->n_mapped;
+    acc->last_off = bam_told;
+    acc->last_coor = b->core.pos;
+    return 0;
+}
+
+void index_acc_step_B( struct index_acc *acc, bam1_t *b )
+{
+    ++acc->n_no_coor;
+    if (b->core.tid >= 0 && acc->n_no_coor) {
+        fprintf(stderr, "[bam_index_core] the alignment is not sorted: reads without coordinates prior to reads with coordinates.\n");
+        exit(1);
+    }
+}
+
 bam_index_t *bam_index_core(bamFile fp)
 {
 	bam1_t *b;
 	bam_header_t *h;
-	int i, ret;
-	bam_index_t *idx;
-	uint32_t last_bin, save_bin;
-	int32_t last_coor, last_tid, save_tid;
-	bam1_core_t *c;
-	uint64_t save_off, last_off, n_mapped, n_unmapped, off_beg, off_end, n_no_coor;
+	int ret;
 
-	idx = (bam_index_t*)calloc(1, sizeof(bam_index_t));
+    struct index_acc acc ;
+
 	b = (bam1_t*)calloc(1, sizeof(bam1_t));
 	h = bam_header_read(fp);
-	c = &b->core;
 
-	idx->n = h->n_targets;
+    index_acc_init(&acc, h->n_targets, bam_tell(fp)) ;
 	bam_header_destroy(h);
-	idx->index = (khash_t(i)**)calloc(idx->n, sizeof(void*));
-	for (i = 0; i < idx->n; ++i) idx->index[i] = kh_init(i);
-	idx->index2 = (bam_lidx_t*)calloc(idx->n, sizeof(bam_lidx_t));
 
-	save_bin = save_tid = last_tid = last_bin = 0xffffffffu;
-	save_off = last_off = bam_tell(fp); last_coor = 0xffffffffu;
-	n_mapped = n_unmapped = n_no_coor = off_end = 0;
-	off_beg = off_end = bam_tell(fp);
 	while ((ret = bam_read1(fp, b)) >= 0) {
-		if (c->tid < 0) ++n_no_coor;
-		if (last_tid < c->tid || (last_tid >= 0 && c->tid < 0)) { // change of chromosomes
-			last_tid = c->tid;
-			last_bin = 0xffffffffu;
-		} else if ((uint32_t)last_tid > (uint32_t)c->tid) {
-			fprintf(stderr, "[bam_index_core] the alignment is not sorted (%s): %d-th chr > %d-th chr\n",
-					bam1_qname(b), last_tid+1, c->tid+1);
-			return NULL;
-		} else if ((int32_t)c->tid >= 0 && last_coor > c->pos) {
-			fprintf(stderr, "[bam_index_core] the alignment is not sorted (%s): %u > %u in %d-th chr\n",
-					bam1_qname(b), last_coor, c->pos, c->tid+1);
-			return NULL;
-		}
-		if (c->tid >= 0 && !(c->flag & BAM_FUNMAP)) insert_offset2(&idx->index2[b->core.tid], b, last_off);
-		if (c->bin != last_bin) { // then possibly write the binning index
-			if (save_bin != 0xffffffffu) // save_bin==0xffffffffu only happens to the first record
-				insert_offset(idx->index[save_tid], save_bin, save_off, last_off);
-			if (last_bin == 0xffffffffu && save_tid != 0xffffffffu) { // write the meta element
-				off_end = last_off;
-				insert_offset(idx->index[save_tid], BAM_MAX_BIN, off_beg, off_end);
-				insert_offset(idx->index[save_tid], BAM_MAX_BIN, n_mapped, n_unmapped);
-				n_mapped = n_unmapped = 0;
-				off_beg = off_end;
-			}
-			save_off = last_off;
-			save_bin = last_bin = c->bin;
-			save_tid = c->tid;
-			if (save_tid < 0) break;
-		}
-		if (bam_tell(fp) <= last_off) {
-			fprintf(stderr, "[bam_index_core] bug in BGZF/RAZF: %llx < %llx\n",
-					(unsigned long long)bam_tell(fp), (unsigned long long)last_off);
-			return NULL;
-		}
-		if (c->flag & BAM_FUNMAP) ++n_unmapped;
-		else ++n_mapped;
-		last_off = bam_tell(fp);
-		last_coor = b->core.pos;
+        if( index_acc_step_A(&acc, b, bam_tell(fp)) ) break ;
 	}
-	if (save_tid >= 0) {
-		insert_offset(idx->index[save_tid], save_bin, save_off, bam_tell(fp));
-		insert_offset(idx->index[save_tid], BAM_MAX_BIN, off_beg, bam_tell(fp));
-		insert_offset(idx->index[save_tid], BAM_MAX_BIN, n_mapped, n_unmapped);
+
+	if (acc.save_tid >= 0) {
+		insert_offset(acc.idx->index[acc.save_tid], acc.save_bin, acc.save_off, bam_tell(fp));
+		insert_offset(acc.idx->index[acc.save_tid], BAM_MAX_BIN, acc.off_beg, bam_tell(fp));
+		insert_offset(acc.idx->index[acc.save_tid], BAM_MAX_BIN, acc.n_mapped, acc.n_unmapped);
 	}
-	merge_chunks(idx);
-	fill_missing(idx);
+	merge_chunks(acc.idx);
+	fill_missing(acc.idx);
 	if (ret >= 0) {
 		while ((ret = bam_read1(fp, b)) >= 0) {
-			++n_no_coor;
-			if (c->tid >= 0 && n_no_coor) {
-				fprintf(stderr, "[bam_index_core] the alignment is not sorted: reads without coordinates prior to reads with coordinates.\n");
-				return NULL;
-			}
+            index_acc_step_B(&acc, b);
 		}
 	}
 	if (ret < -1) fprintf(stderr, "[bam_index_core] truncated file? Continue anyway. (%d)\n", ret);
 	free(b->data); free(b);
-	idx->n_no_coor = n_no_coor;
-	return idx;
+	acc.idx->n_no_coor = acc.n_no_coor;
+	return index_acc_destroy(&acc) ;
 }
 
 void bam_index_destroy(bam_index_t *idx)
