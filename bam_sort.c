@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include "ksort.h"
 #include "bam_stat.h"
+#include "bam_index.h"
 
 static int g_is_by_qname = 0;
 static int g_ignore_warts = 0;
@@ -105,6 +106,7 @@ struct bam_sink {
     bam_header_t *hdr;
     struct flagstatx_acc fa;
     struct covstat_acc ca;
+    struct index_acc ia;
 } ;
 
 void bam_sink_init_file( struct bam_sink *s, const char* out, int flag ) 
@@ -121,15 +123,22 @@ void bam_sink_init_file( struct bam_sink *s, const char* out, int flag )
 
 inline void bam_put_header( struct bam_sink *s, bam_header_t *h )
 {
-    if(s->fp) bam_header_write(s->fp, h);
     s->hdr = h;
+    if(s->fp) {
+        bam_header_write(s->fp, h);
+        if(s->ia.idx)
+            index_acc_init_B(&s->ia, h->n_targets, bam_tell(s->fp) );
+    }
 }
 
 inline void bam_put_rec( struct bam_sink *s, bam_header_t *h, bam1_t *b )
 {
     const char *rg = get_rg(b);
-    if(s->fp) bam_write1_core(s->fp, &b->core, b->data_len, b->data);
-    // index?
+    if(s->fp) {
+        bam_write1_core(s->fp, &b->core, b->data_len, b->data);
+        if(s->ia.idx)
+            index_acc_step(&s->ia, b, bam_tell(s->fp)) ;
+    }
     if(s->fa.h) flagstatx_step(&s->fa, rg, b);
     if(s->ca.h && h) covstat_step(&s->ca, rg, h, b);
 }
@@ -140,6 +149,7 @@ inline void bam_sink_close( struct bam_sink *s )
     if(s->fa.h) flagstatx_destroy(&s->fa);
     if(s->ca.h) covstat_destroy(&s->ca);
     if(s->hdr) bam_header_destroy(s->hdr);
+    if(s->ia.idx) bam_index_destroy(s->ia.idx);
 }
 
 int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers, int n, char * const *fn,
@@ -368,7 +378,7 @@ int bam_merge(int argc, char *argv[], int vanilla)
         bam_sink_init_file(&fpout, oname, flag);
         if( fn_cstat ) covstat_init(&fpout.ca);
         if( fn_xstat ) flagstatx_init(&fpout.fa);
-        // XXX if( fn_index ) ..._init(&fpout...);
+        if( fn_index ) index_acc_init_A(&fpout.ia);
 
         int r = bam_merge_core_ext(is_by_qname, &fpout, fn_headers, argc - optind, argv + optind, flag, reg);
         if( fn_cstat ) {
@@ -389,8 +399,15 @@ int bam_merge(int argc, char *argv[], int vanilla)
             flagstatx_print( &fpout.fa, fp ) ;
             fclose(fp) ;
         }
-        if( fn_index ) {
-            // XXX
+        if( fn_index && fpout.ia.idx ) {
+            FILE *fp = fopen( fn_index, "wb" );
+            if( !fp ) { 
+                fprintf(stderr, "[%s] Cannot write file `%s': %s\n", __func__, fn_index, strerror(errno));
+                return 1;
+            }
+            bam_index_t *idx = index_acc_finish(&fpout.ia, bam_tell(fpout.fp)) ;
+            bam_index_save(idx, fp);
+            fclose(fp) ;
         }
         bam_sink_close(&fpout);
         return r < 1 ;

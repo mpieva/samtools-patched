@@ -2,10 +2,10 @@
 #include <assert.h>
 #include <string.h>
 #include <errno.h>
-#include "bam.h"
 #include "khash.h"
 #include "ksort.h"
 #include "bam_endian.h"
+#include "bam_index.h"
 #ifdef _USE_KNETFILE
 #include "knetfile.h"
 #endif
@@ -150,17 +150,11 @@ static void fill_missing(bam_index_t *idx)
 	}
 }
 
-struct index_acc {
-	bam_index_t *idx;
-
-	uint32_t last_bin, save_bin;
-	int32_t last_coor, last_tid, save_tid;
-	uint64_t save_off, last_off, n_mapped, n_unmapped, off_beg, off_end, n_no_coor;
-};
-
-void index_acc_init( struct index_acc *a, int32_t n_targets, int64_t off0 ) {
-    int i;
+void index_acc_init_A( struct index_acc *a ) {
 	a->idx = (bam_index_t*)calloc(1, sizeof(bam_index_t));
+}
+void index_acc_init_B( struct index_acc *a, int32_t n_targets, int64_t off0 ) {
+    int i;
 	a->idx->n = n_targets;
 	a->idx->index = (khash_t(i)**)calloc(a->idx->n, sizeof(void*));
 	for (i = 0; i < a->idx->n; ++i) a->idx->index[i] = kh_init(i);
@@ -172,15 +166,23 @@ void index_acc_init( struct index_acc *a, int32_t n_targets, int64_t off0 ) {
 	a->off_beg = a->off_end = off0;
 }
 
-bam_index_t *index_acc_destroy( struct index_acc *a ) {
-    return a->idx;
+bam_index_t *index_acc_finish( struct index_acc *acc, int64_t off )
+{
+	if (acc->save_tid >= 0) {
+		insert_offset(acc->idx->index[acc->save_tid], acc->save_bin, acc->save_off, off);
+		insert_offset(acc->idx->index[acc->save_tid], BAM_MAX_BIN, acc->off_beg, off);
+		insert_offset(acc->idx->index[acc->save_tid], BAM_MAX_BIN, acc->n_mapped, acc->n_unmapped);
+	}
+	merge_chunks(acc->idx);
+	fill_missing(acc->idx);
+
+	acc->idx->n_no_coor = acc->n_no_coor;
+    return acc->idx;
 }
 
 // Arguments are the accumulator, the current record, the position in
-// the file of the record *after* b.  Return 1 if the enclosing loop
-// should be left.
-
-int index_acc_step_A( struct index_acc *acc, bam1_t *b, int64_t bam_told )
+// the file of the record *after* b.
+void index_acc_step_A( struct index_acc *acc, bam1_t *b, int64_t bam_told )
 {
 	bam1_core_t *c = &b->core;
     if (c->tid < 0) ++acc->n_no_coor;
@@ -210,7 +212,7 @@ int index_acc_step_A( struct index_acc *acc, bam1_t *b, int64_t bam_told )
         acc->save_off = acc->last_off;
         acc->save_bin = acc->last_bin = c->bin;
         acc->save_tid = c->tid;
-        if (c->tid < 0) return 1;
+        if (c->tid < 0) return ;
     }
     if (bam_told <= acc->last_off) {
         fprintf(stderr, "[bam_index_core] bug in BGZF/RAZF: %llx < %llx\n",
@@ -221,52 +223,37 @@ int index_acc_step_A( struct index_acc *acc, bam1_t *b, int64_t bam_told )
     else ++acc->n_mapped;
     acc->last_off = bam_told;
     acc->last_coor = b->core.pos;
-    return 0;
 }
 
-void index_acc_step_B( struct index_acc *acc, bam1_t *b )
+void index_acc_step( struct index_acc *acc, bam1_t *b, int64_t off )
 {
-    ++acc->n_no_coor;
-    if (b->core.tid >= 0 && acc->n_no_coor) {
-        fprintf(stderr, "[bam_index_core] the alignment is not sorted: reads without coordinates prior to reads with coordinates.\n");
-        exit(1);
+    if( acc->n_no_coor ) {
+        if (b->core.tid >= 0) {
+            fprintf(stderr, "[bam_index_core] the alignment is not sorted: reads without coordinates prior to reads with coordinates.\n");
+            exit(1);
+        }
+        ++acc->n_no_coor;
     }
+    else index_acc_step_A(acc,b,off) ;
 }
 
 bam_index_t *bam_index_core(bamFile fp)
 {
-	bam1_t *b;
-	bam_header_t *h;
 	int ret;
+	bam1_t *b = (bam1_t*)calloc(1, sizeof(bam1_t));
+	bam_header_t *h = bam_header_read(fp);
 
     struct index_acc acc ;
-
-	b = (bam1_t*)calloc(1, sizeof(bam1_t));
-	h = bam_header_read(fp);
-
-    index_acc_init(&acc, h->n_targets, bam_tell(fp)) ;
+    index_acc_init_A(&acc) ;
+    index_acc_init_B(&acc, h->n_targets, bam_tell(fp)) ;
 	bam_header_destroy(h);
 
 	while ((ret = bam_read1(fp, b)) >= 0) {
-        if( index_acc_step_A(&acc, b, bam_tell(fp)) ) break ;
-	}
-
-	if (acc.save_tid >= 0) {
-		insert_offset(acc.idx->index[acc.save_tid], acc.save_bin, acc.save_off, bam_tell(fp));
-		insert_offset(acc.idx->index[acc.save_tid], BAM_MAX_BIN, acc.off_beg, bam_tell(fp));
-		insert_offset(acc.idx->index[acc.save_tid], BAM_MAX_BIN, acc.n_mapped, acc.n_unmapped);
-	}
-	merge_chunks(acc.idx);
-	fill_missing(acc.idx);
-	if (ret >= 0) {
-		while ((ret = bam_read1(fp, b)) >= 0) {
-            index_acc_step_B(&acc, b);
-		}
+        index_acc_step(&acc, b, bam_tell(fp));
 	}
 	if (ret < -1) fprintf(stderr, "[bam_index_core] truncated file? Continue anyway. (%d)\n", ret);
 	free(b->data); free(b);
-	acc.idx->n_no_coor = acc.n_no_coor;
-	return index_acc_destroy(&acc) ;
+	return index_acc_finish(&acc, bam_tell(fp)) ;
 }
 
 void bam_index_destroy(bam_index_t *idx)
