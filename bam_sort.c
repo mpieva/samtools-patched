@@ -131,7 +131,7 @@ inline void bam_put_header( struct bam_sink *s, bam_header_t *h )
     }
 }
 
-inline void bam_put_rec( struct bam_sink *s, bam_header_t *h, bam1_t *b )
+inline void bam_put_rec( struct bam_sink *s, bam1_t *b )
 {
     const char *rg = get_rg(b);
     if(s->fp) {
@@ -140,7 +140,7 @@ inline void bam_put_rec( struct bam_sink *s, bam_header_t *h, bam1_t *b )
             index_acc_step(&s->ia, b, bam_tell(s->fp)) ;
     }
     if(s->fa.h) flagstatx_step(&s->fa, rg, b);
-    if(s->ca.h && h) covstat_step(&s->ca, rg, h, b);
+    if(s->ca.h && s->hdr) covstat_step(&s->ca, rg, s->hdr, b);
 }
 
 inline void bam_sink_close( struct bam_sink *s ) 
@@ -286,7 +286,7 @@ int bam_merge_core_ext(int by_qname, struct bam_sink *fpout, const char *headers
 			if (rg) bam_aux_del(b, rg);
 			bam_aux_append(b, "RG", 'Z', RG_len[heap->i] + 1, (uint8_t*)RG[heap->i]);
 		}
-		bam_put_rec(fpout, 0, b);
+		bam_put_rec(fpout, b);
 		if ((j = bam_iter_read(fp[heap->i], iter[heap->i], b)) >= 0) {
 			heap->pos = ((uint64_t)b->core.tid<<32) | (uint32_t)((int)b->core.pos+1)<<1 | bam1_strand(b);
 			heap->idx = idx++;
@@ -432,31 +432,35 @@ static inline int bam1_lt(const bam1_p a, const bam1_p b)
 }
 KSORT_INIT(sort, bam1_p, bam1_lt)
 
-static void sort_blocks(int n, int k, bam1_p *buf, const char *prefix, const bam_header_t *h, int is_stdout)
+static void sort_blocks_ex(int n, int k, bam1_p *buf, struct bam_sink *sink, bam_header_t *h)
 {
-	char *name, mode[3];
 	int i;
-	bamFile fp;
 	ks_mergesort(sort, k, buf, 0);
-	name = (char*)calloc(strlen(prefix) + 20, 1);
+	bam_put_header(sink,h);
+	for (i = 0; i < k; ++i)
+		bam_put_rec(sink, buf[i]);
+}
+
+static void sort_blocks(int n, int k, bam1_p *buf, const char *prefix, bam_header_t *h, int is_stdout)
+{
+    struct bam_sink fpout;
+    int flag=0;
+	char *name = (char*)calloc(strlen(prefix) + 20, 1);
 	if (n >= 0) {
 		sprintf(name, "%s.%.4d.bam", prefix, n);
-		strcpy(mode, "w1");
+        flag |= MERGE_LEVEL1;
 	} else {
 		sprintf(name, "%s.bam", prefix);
-		strcpy(mode, "w");
 	}
-	fp = is_stdout? bam_dopen(fileno(stdout), mode) : bam_open(name, mode);
-	if (fp == 0) {
+    bam_sink_init_file(&fpout, is_stdout?"-":name, flag);
+	free(name);
+
+	if (fpout.fp == 0) {
 		fprintf(stderr, "[sort_blocks] fail to create file %s.\n", name);
-		free(name);
 		exit(1);
 	}
-	free(name);
-	bam_header_write(fp, h);
-	for (i = 0; i < k; ++i)
-		bam_write1_core(fp, &buf[i]->core, buf[i]->data_len, buf[i]->data);
-	bam_close(fp);
+    sort_blocks_ex(n,k,buf,&fpout,h);
+    bam_sink_close(&fpout);
 }
 
 /*!
@@ -498,7 +502,7 @@ void bam_sort_core_ext(int is_by_qname, const char *fn, const char *prefix, size
 		mem += ret;
 		++k;
 		if (mem >= max_mem) {
-			sort_blocks(n++, k, buf, prefix, header, 0);
+			sort_blocks(n++, k, buf, prefix, bam_header_dup(header), 0);
 			mem = 0; k = 0;
 		}
 	}
@@ -532,7 +536,6 @@ void bam_sort_core_ext(int is_by_qname, const char *fn, const char *prefix, size
 		}
 	}
 	free(buf);
-	bam_header_destroy(header);
 	bam_close(fp);
 }
 

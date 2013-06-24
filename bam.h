@@ -384,6 +384,8 @@ extern "C" {
 	 */
 	bam_header_t *bam_header_init();
 
+    bam_header_t *bam_header_dup(const bam_header_t*);
+
 	/*!
 	  @abstract        Destroy a header structure.
 	  @param  header  pointer to the header

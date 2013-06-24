@@ -227,7 +227,7 @@ void covstat_init( struct covstat_acc *c )
     c->norm=1;
 }
 
-void covstat_step( struct covstat_acc *c, const char *rg, bam_header_t *header, bam1_t *b ) {
+void covstat_step( struct covstat_acc *c, const char *rg, const bam_header_t *header, bam1_t *b ) {
     khint_t k;
     int ret;
     if (!(b->core.flag & BAM_FUNMAP) && b->core.tid >= 0 && b->core.tid < header->n_targets) {
