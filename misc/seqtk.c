@@ -424,7 +424,7 @@ int stk_subseq(int argc, char *argv[])
 		for (i = 0; i < p->n; ++i) {
 			int beg = p->a[i]>>32, end = p->a[i];
 			if (beg >= seq->seq.l) {
-				fprintf(stderr, "[subseq] %s: %d >= %ld\n", seq->name.s, beg, seq->seq.l);
+				fprintf(stderr, "[subseq] %s: %d >= %ld\n", seq->name.s, beg, (long)seq->seq.l);
 				continue;
 			}
 			if (end > seq->seq.l) end = seq->seq.l;
@@ -492,7 +492,7 @@ int stk_mergefa(int argc, char *argv[])
 		if (strcmp(seq[0]->name.s, seq[1]->name.s))
 			fprintf(stderr, "[%s] Different sequence names: %s != %s\n", __func__, seq[0]->name.s, seq[1]->name.s);
 		if (seq[0]->seq.l != seq[1]->seq.l)
-			fprintf(stderr, "[%s] Unequal sequence length: %ld != %ld\n", __func__, seq[0]->seq.l, seq[1]->seq.l);
+			fprintf(stderr, "[%s] Unequal sequence length: %ld != %ld\n", __func__, (long)seq[0]->seq.l, (long)seq[1]->seq.l);
 		min_l = seq[0]->seq.l < seq[1]->seq.l? seq[0]->seq.l : seq[1]->seq.l;
 		printf(">%s", seq[0]->name.s);
 		for (l = 0; l < min_l; ++l) {
@@ -543,7 +543,7 @@ int stk_famask(int argc, char *argv[])
 		if (strcmp(seq[0]->name.s, seq[1]->name.s))
 			fprintf(stderr, "[%s] Different sequence names: %s != %s\n", __func__, seq[0]->name.s, seq[1]->name.s);
 		if (seq[0]->seq.l != seq[1]->seq.l)
-			fprintf(stderr, "[%s] Unequal sequence length: %ld != %ld\n", __func__, seq[0]->seq.l, seq[1]->seq.l);
+			fprintf(stderr, "[%s] Unequal sequence length: %ld != %ld\n", __func__, (long)seq[0]->seq.l, (long)seq[1]->seq.l);
 		min_l = seq[0]->seq.l < seq[1]->seq.l? seq[0]->seq.l : seq[1]->seq.l;
 		printf(">%s", seq[0]->name.s);
 		for (l = 0; l < min_l; ++l) {
