@@ -441,7 +441,7 @@ static void sort_blocks_ex(int n, int k, bam1_p *buf, struct bam_sink *sink, bam
 		bam_put_rec(sink, buf[i]);
 }
 
-static void sort_blocks(int n, int k, bam1_p *buf, const char *prefix, bam_header_t *h, int is_stdout)
+static void sort_blocks(int n, int k, bam1_p *buf, const char *prefix, bam_header_t *h)
 {
     struct bam_sink fpout;
     int flag=0;
@@ -452,7 +452,7 @@ static void sort_blocks(int n, int k, bam1_p *buf, const char *prefix, bam_heade
 	} else {
 		sprintf(name, "%s.bam", prefix);
 	}
-    bam_sink_init_file(&fpout, is_stdout?"-":name, flag);
+    bam_sink_init_file(&fpout, name, flag);
 	free(name);
 
 	if (fpout.fp == 0) {
@@ -477,7 +477,7 @@ static void sort_blocks(int n, int k, bam1_p *buf, const char *prefix, bam_heade
   and then merge them by calling bam_merge_core(). This function is
   NOT thread safe.
  */
-void bam_sort_core_ext(int is_by_qname, const char *fn, const char *prefix, size_t max_mem, int is_stdout)
+void bam_sort_core_ext_ex(int is_by_qname, const char* fn, struct bam_sink *sink, const char *prefix, size_t max_mem)
 {
 	int n, ret, k, i;
 	size_t mem;
@@ -502,27 +502,22 @@ void bam_sort_core_ext(int is_by_qname, const char *fn, const char *prefix, size
 		mem += ret;
 		++k;
 		if (mem >= max_mem) {
-			sort_blocks(n++, k, buf, prefix, bam_header_dup(header), 0);
+			sort_blocks(n++, k, buf, prefix, bam_header_dup(header));
 			mem = 0; k = 0;
 		}
 	}
 	if (ret != -1)
 		fprintf(stderr, "[bam_sort_core] truncated file. Continue anyway.\n");
-	if (n == 0) sort_blocks(-1, k, buf, prefix, header, is_stdout);
+	if (n == 0) sort_blocks_ex(-1, k, buf, sink, header);
 	else { // then merge
-		char **fns, *fnout;
+        char **fns = (char**)calloc(n, sizeof(char*));
 		fprintf(stderr, "[bam_sort_core] merging from %d files...\n", n+1);
-		sort_blocks(n++, k, buf, prefix, header, 0);
-		fnout = (char*)calloc(strlen(prefix) + 20, 1);
-		if (is_stdout) sprintf(fnout, "-");
-		else sprintf(fnout, "%s.bam", prefix);
-		fns = (char**)calloc(n, sizeof(char*));
-		for (i = 0; i < n; ++i) {
-			fns[i] = (char*)calloc(strlen(prefix) + 20, 1);
-			sprintf(fns[i], "%s.%.4d.bam", prefix, i);
-		}
-		bam_merge_core(is_by_qname, fnout, 0, n, fns, 0, 0);
-		free(fnout);
+		sort_blocks(n++, k, buf, prefix, header);
+        for (i = 0; i < n; ++i) {
+            fns[i] = (char*)calloc(strlen(prefix) + 20, 1);
+            sprintf(fns[i], "%s.%.4d.bam", prefix, i);
+        }
+		bam_merge_core_ext(is_by_qname, sink, 0, n, fns, 0, 0);
 		for (i = 0; i < n; ++i) {
 			unlink(fns[i]);
 			free(fns[i]);
@@ -539,6 +534,21 @@ void bam_sort_core_ext(int is_by_qname, const char *fn, const char *prefix, size
 	bam_close(fp);
 }
 
+void bam_sort_core_ext(int is_by_qname, const char *fn, const char *prefix, size_t max_mem, int is_stdout)
+{
+    struct bam_sink fpout;
+    if( is_stdout ) 
+        bam_sink_init_file(&fpout, "-", 0);
+    else {
+        char *fnout = (char*)calloc(strlen(prefix) + 20, 1);
+        sprintf(fnout, "%s.bam", prefix);
+        bam_sink_init_file(&fpout, fnout, 0);
+        free(fnout);
+    }
+    bam_sort_core_ext_ex(is_by_qname, fn, &fpout, prefix, max_mem);
+    bam_sink_close(&fpout);
+}
+
 void bam_sort_core(int is_by_qname, const char *fn, const char *prefix, size_t max_mem)
 {
 	bam_sort_core_ext(is_by_qname, fn, prefix, max_mem, 0);
@@ -548,9 +558,13 @@ int bam_sort(int argc, char *argv[])
 {
 	size_t max_mem = 500000000;
 	int c, is_by_qname = 0, is_stdout = 0;
+    char *fn_index = 0, *fn_cstat = 0, *fn_xstat = 0;
     char *ep ;
 	while ((c = getopt(argc, argv, "nowm:")) >= 0) {
 		switch (c) {
+        case 'i': fn_index = optarg; break;
+        case 'x': fn_xstat = optarg; break;
+        case 'c': fn_cstat = optarg; break;
 		case 'o': is_stdout = 1; break;
 		case 'n': is_by_qname = 1; break;
         case 'w': g_ignore_warts = 1; break;                  
@@ -565,14 +579,59 @@ int bam_sort(int argc, char *argv[])
 		}
 	}
     if (optind + 2 > argc) goto usage ;
-	bam_sort_core_ext(is_by_qname, argv[optind], argv[optind+1], max_mem, is_stdout);
-	return 0;
+
+    struct bam_sink fpout;
+    if( is_stdout ) 
+        bam_sink_init_file(&fpout, "-", 0);
+    else {
+        char *fnout = (char*)calloc(strlen(argv[optind+1]) + 20, 1);
+        sprintf(fnout, "%s.bam", argv[optind+1]);
+        bam_sink_init_file(&fpout, fnout, 0);
+        free(fnout);
+    }
+    if( fn_cstat ) covstat_init(&fpout.ca);
+    if( fn_xstat ) flagstatx_init(&fpout.fa);
+    if( fn_index ) index_acc_init_A(&fpout.ia);
+    bam_sort_core_ext_ex(is_by_qname, argv[optind], &fpout, argv[optind+1], max_mem);
+    if( fn_cstat ) {
+        FILE *fp = fopen( fn_cstat, "w" );
+        if( !fp ) { 
+            fprintf(stderr, "[%s] Cannot write file `%s': %s\n", __func__, fn_cstat, strerror(errno));
+            return 1;
+        }
+        covstat_print( &fpout.ca, fp, fpout.hdr ) ;
+        fclose(fp) ;
+    }
+    if( fn_xstat ) {
+        FILE *fp = fopen( fn_xstat, "w" );
+        if( !fp ) { 
+            fprintf(stderr, "[%s] Cannot write file `%s': %s\n", __func__, fn_xstat, strerror(errno));
+            return 1;
+        }
+        flagstatx_print( &fpout.fa, fp ) ;
+        fclose(fp) ;
+    }
+    if( fn_index && fpout.ia.idx ) {
+        FILE *fp = fopen( fn_index, "wb" );
+        if( !fp ) { 
+            fprintf(stderr, "[%s] Cannot write file `%s': %s\n", __func__, fn_index, strerror(errno));
+            return 1;
+        }
+        bam_index_t *idx = index_acc_finish(&fpout.ia, bam_tell(fpout.fp)) ;
+        bam_index_save(idx, fp);
+        fclose(fp) ;
+    }
+    bam_sink_close(&fpout);
+    return 0;
 
 usage:
     fprintf(stderr, "\n");
     fprintf(stderr, "Usage:   %s sort [-on] [-m <maxMem>] <in.bam> <out.prefix>\n", invocation_name);
     fprintf(stderr, "Options: -n       sort by read names\n");
     fprintf(stderr, "         -o       write output to stdout\n");
+    fprintf(stderr, "         -i FILE  also write index to FILE\n");
+    fprintf(stderr, "         -x FILE  also write flagstatx to FILE\n");
+    fprintf(stderr, "         -c FILE  also write covstat to FILE\n");
     fprintf(stderr, "         -m NUM   use NUM bytes of memory (%ld%c)\n", (long)(
         max_mem >> 31 ? max_mem >> 30 : max_mem >> 22 ? max_mem >> 20 : max_mem >> 10),
         max_mem >> 31 ?           'G' : max_mem >> 22 ?           'M' :           'k' ) ;
