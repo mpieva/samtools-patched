@@ -75,27 +75,6 @@ bgzip:bgzip.o bgzf.o $(KNETFILE_O)
 faidx: faidx.c razf.o $(KNETFILE_O)
 		$(CC) $(CFLAGS) -o $@ -DFAIDX_MAIN faidx.c razf.o $(KNETFILE_O) -lz
 
-razip.o:razf.h
-bam.o:bam.h razf.h bam_endian.h kstring.h sam_header.h
-sam.o:sam.h bam.h
-bam_import.o:bam.h kseq.h khash.h razf.h
-bam_pileup.o:bam.h razf.h ksort.h
-bam_plcmd.o:bam.h faidx.h bcftools/bcf.h bam2bcf.h
-bam_index.o:bam.h khash.h ksort.h razf.h bam_endian.h
-bam_lpileup.o:bam.h ksort.h
-bam_tview.o:bam.h faidx.h
-bam_sort.o:bam.h ksort.h razf.h
-bam_md.o:bam.h faidx.h
-sam_header.o:sam_header.h khash.h
-bcf.o:bcftools/bcf.h
-bam2bcf.o:bam2bcf.h errmod.h bcftools/bcf.h
-bam2bcf_indel.o:bam2bcf.h
-errmod.o:errmod.h
-phase.o:bam.h khash.h ksort.h
-bamtk.o:bam.h
-faidx.o:faidx.h razf.h khash.h
-
-
 libbam.1.dylib-local:$(LOBJS)
 		libtool -dynamic $(LOBJS) -o libbam.1.dylib -lc -lz
 
@@ -115,3 +94,49 @@ cleanlocal:
 		rm -fr gmon.out *.o a.out *.exe *.dSYM razip bgzip $(PROG) *~ *.a *.so.* *.so *.dylib
 
 clean:cleanlocal-recur
+
+bam.o: bam.c bam.h bgzf.h bam_endian.h kstring.h sam_header.h
+bam2bcf.o: bam2bcf.c bam.h bgzf.h kstring.h bam2bcf.h errmod.h \
+ bcftools/bcf.h
+bam2bcf_indel.o: bam2bcf_indel.c bam.h bgzf.h bam2bcf.h errmod.h \
+ bcftools/bcf.h kaln.h kprobaln.h khash.h ksort.h
+bam2depth.o: bam2depth.c bam.h bgzf.h
+bam_aux.o: bam_aux.c bam.h bgzf.h khash.h
+bam_cat.o: bam_cat.c bgzf.h bam.h
+bam_color.o: bam_color.c bam.h bgzf.h
+bam_import.o: bam_import.c kstring.h bam.h bgzf.h sam_header.h kseq.h \
+ khash.h
+bam_index.o: bam_index.c khash.h ksort.h bam_endian.h bam_index.h bam.h \
+ bgzf.h
+bam_lpileup.o: bam_lpileup.c bam.h bgzf.h ksort.h
+bam_mate.o: bam_mate.c bam.h bgzf.h
+bam_md.o: bam_md.c faidx.h sam.h bam.h bgzf.h kstring.h kaln.h kprobaln.h
+bam_pileup.o: bam_pileup.c sam.h bam.h bgzf.h
+bam_plcmd.o: bam_plcmd.c sam.h bam.h bgzf.h faidx.h kstring.h bam2bcf.h \
+ errmod.h bcftools/bcf.h sample.h
+bam_reheader.o: bam_reheader.c bgzf.h bam.h
+bam_rmdup.o: bam_rmdup.c sam.h bam.h bgzf.h khash.h
+bam_rmdupse.o: bam_rmdupse.c sam.h bam.h bgzf.h khash.h klist.h
+bam_sort.o: bam_sort.c ksort.h bam_stat.h bam.h bgzf.h khash.h \
+ bam_index.h
+bam_stat.o: bam_stat.c bam_stat.h bam.h bgzf.h khash.h
+bam_tview.o: bam_tview.c
+bamtk.o: bamtk.c bam.h bgzf.h
+bedidx.o: bedidx.c ksort.h kseq.h khash.h
+bgzf.o: bgzf.c bgzf.h khash.h
+bgzip.o: bgzip.c bgzf.h
+cut_target.o: cut_target.c bam.h bgzf.h errmod.h faidx.h
+errmod.o: errmod.c errmod.h ksort.h
+faidx.o: faidx.c faidx.h khash.h razf.h
+kaln.o: kaln.c kaln.h
+knetfile.o: knetfile.c knetfile.h
+kprobaln.o: kprobaln.c kprobaln.h
+kstring.o: kstring.c kstring.h
+phase.o: phase.c bam.h bgzf.h errmod.h kseq.h khash.h ksort.h
+razf.o: razf.c razf.h
+razip.o: razip.c razf.h
+sam.o: sam.c faidx.h sam.h bam.h bgzf.h
+sam_header.o: sam_header.c sam_header.h khash.h
+sam_view.o: sam_view.c sam_header.h sam.h bam.h bgzf.h faidx.h kstring.h \
+ khash.h
+sample.o: sample.c sample.h kstring.h khash.h
