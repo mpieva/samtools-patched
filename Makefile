@@ -1,6 +1,6 @@
 CC=			gcc
 # CFLAGS=		-ggdb -Wall -O0 #-m64 #-arch ppc
-CFLAGS=		-Wall -O2 #-m64 #-arch ppc
+CFLAGS=		-Wall -O2 -ggdb #-m64 #-arch ppc
 DFLAGS=		-D_FILE_OFFSET_BITS=64 -D_LARGEFILE64_SOURCE -D_USE_KNETFILE -D_CURSES_LIB=1 \
 			-DGIT_VERSION="$(shell git describe --always)"
 KNETFILE_O=	knetfile.o

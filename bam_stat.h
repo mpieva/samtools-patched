@@ -33,7 +33,7 @@ struct covstat_acc {
 } ;
 
 void covstat_init( struct covstat_acc* );
-void covstat_step( struct covstat_acc*, const char *rg, bam_header_t*, bam1_t* );
+void covstat_step( struct covstat_acc*, const char *rg, const bam_header_t*, bam1_t* );
 void covstat_print( struct covstat_acc*, FILE*, bam_header_t* );
 void covstat_destroy( struct covstat_acc* );
 
