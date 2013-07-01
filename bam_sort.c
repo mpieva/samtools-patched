@@ -510,9 +510,9 @@ void bam_sort_core_ext_ex(int is_by_qname, const char* fn, struct bam_sink *sink
 		fprintf(stderr, "[bam_sort_core] truncated file. Continue anyway.\n");
 	if (n == 0) sort_blocks_ex(-1, k, buf, sink, header);
 	else { // then merge
-        char **fns = (char**)calloc(n, sizeof(char*));
 		fprintf(stderr, "[bam_sort_core] merging from %d files...\n", n+1);
 		sort_blocks(n++, k, buf, prefix, header);
+        char **fns = (char**)calloc(n, sizeof(char*));
         for (i = 0; i < n; ++i) {
             fns[i] = (char*)calloc(strlen(prefix) + 20, 1);
             sprintf(fns[i], "%s.%.4d.bam", prefix, i);
@@ -554,13 +554,13 @@ void bam_sort_core(int is_by_qname, const char *fn, const char *prefix, size_t m
 	bam_sort_core_ext(is_by_qname, fn, prefix, max_mem, 0);
 }
 
-int bam_sort(int argc, char *argv[])
+int bam_sort(int argc, char *argv[], int vanilla)
 {
 	size_t max_mem = 500000000;
 	int c, is_by_qname = 0, is_stdout = 0;
     char *fn_index = 0, *fn_cstat = 0, *fn_xstat = 0;
     char *ep ;
-	while ((c = getopt(argc, argv, "nowm:")) >= 0) {
+	while ((c = getopt(argc, argv, vanilla?"nowm:":"nowm:i:x:c:")) >= 0) {
 		switch (c) {
         case 'i': fn_index = optarg; break;
         case 'x': fn_xstat = optarg; break;
@@ -569,10 +569,12 @@ int bam_sort(int argc, char *argv[])
 		case 'n': is_by_qname = 1; break;
         case 'w': g_ignore_warts = 1; break;                  
         case 'm': max_mem = strtol(optarg, &ep, 10);
-                  switch(*ep) {
-                      case 'k': max_mem <<= 10 ; ++ep ; break ;
-                      case 'M': max_mem <<= 20 ; ++ep ; break ;
-                      case 'G': max_mem <<= 30 ; ++ep ; break ;
+                  if(!vanilla) {
+                      switch(*ep) {
+                          case 'k': max_mem <<= 10 ; ++ep ; break ;
+                          case 'M': max_mem <<= 20 ; ++ep ; break ;
+                          case 'G': max_mem <<= 30 ; ++ep ; break ;
+                      }
                   }
                   if(!*ep) break;
         default: goto usage;
@@ -629,9 +631,11 @@ usage:
     fprintf(stderr, "Usage:   %s sort [-on] [-m <maxMem>] <in.bam> <out.prefix>\n", invocation_name);
     fprintf(stderr, "Options: -n       sort by read names\n");
     fprintf(stderr, "         -o       write output to stdout\n");
-    fprintf(stderr, "         -i FILE  also write index to FILE\n");
-    fprintf(stderr, "         -x FILE  also write flagstatx to FILE\n");
-    fprintf(stderr, "         -c FILE  also write covstat to FILE\n");
+    if( !vanilla ) {
+        fprintf(stderr, "         -i FILE  also write index to FILE\n");
+        fprintf(stderr, "         -x FILE  also write flagstatx to FILE\n");
+        fprintf(stderr, "         -c FILE  also write covstat to FILE\n");
+    }
     fprintf(stderr, "         -m NUM   use NUM bytes of memory (%ld%c)\n", (long)(
         max_mem >> 31 ? max_mem >> 30 : max_mem >> 22 ? max_mem >> 20 : max_mem >> 10),
         max_mem >> 31 ?           'G' : max_mem >> 22 ?           'M' :           'k' ) ;

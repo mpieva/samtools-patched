@@ -142,6 +142,10 @@ void flagstatx_init( struct flagstatx_acc *f ) {
 }
 
 void flagstatx_destroy( struct flagstatx_acc *f ) {
+    khint_t k;
+	for (k = kh_begin(f->h); k != kh_end(f->h); ++k) 
+        if(kh_exist(f->h,k)) 
+            free(kh_key(f->h,k));
     kh_destroy(rg2stat, f->h);
 }
 
@@ -280,8 +284,10 @@ void covstat_print( struct covstat_acc *acc, FILE* f, bam_header_t *header ) {
 void covstat_destroy(struct covstat_acc *c) {
     khint_t k;
     for (k = kh_begin(c->h); k != kh_end(c->h); ++k)
-        if(kh_exist(c->h,k))
+        if(kh_exist(c->h,k)) {
+            free(kh_key(c->h,k));
             free(kh_value(c->h,k));
+        }
     kh_destroy(rg2cov, c->h);
 }
 
