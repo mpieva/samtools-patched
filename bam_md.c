@@ -88,7 +88,7 @@ void bam_fillmd1_core(bam1_t *b, char *ref, int flag, int max_nm)
 	if (flag & UPDATE_NM) {
 		uint8_t *old_nm = bam_aux_get(b, "NM");
 		if (c->flag & BAM_FUNMAP) return;
-		if (old_nm) old_nm_i = bam_aux2i(old_nm,0);
+		if (old_nm) old_nm_i = bam_aux2i(old_nm);
 		if (!old_nm) bam_aux_append(b, "NM", 'i', 4, (uint8_t*)&nm);
 		else if (nm != old_nm_i) {
 			fprintf(stderr, "[bam_fillmd1] different NM for read '%s': %d -> %d\n", bam1_qname(b), old_nm_i, nm);

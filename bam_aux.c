@@ -162,7 +162,7 @@ int bam_parse_region(bam_header_t *header, const char *str, int *ref_id, int *be
 	return *beg <= *end? 0 : -1;
 }
 
-int32_t bam_aux2i(const uint8_t *s, int32_t d)
+int32_t bam_aux2i_d(const uint8_t *s, int32_t d)
 {
 	int type;
 	if (s == 0) return 0;

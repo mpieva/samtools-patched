@@ -664,11 +664,13 @@ extern "C" {
 	*/
 	uint8_t *bam_aux_get(const bam1_t *b, const char tag[2]);
 
-    int32_t bam_aux2i(const uint8_t *s, int32_t d);
+    int32_t bam_aux2i_d(const uint8_t *s, int32_t d);
 	float bam_aux2f(const uint8_t *s);
 	double bam_aux2d(const uint8_t *s);
 	char bam_aux2A(const uint8_t *s);
 	char *bam_aux2Z(const uint8_t *s);
+
+    inline static int32_t bam_aux2i(const uint8_t *s) { return bam_aux2i_d(s,0); }
 
 	int bam_aux_del(bam1_t *b, uint8_t *s);
 	void bam_aux_append(bam1_t *b, const char tag[2], char type, int len, uint8_t *data);
