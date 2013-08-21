@@ -73,8 +73,6 @@ Note: The Windows version of SAMtools is mainly designed for read-only\n\
 	return 1;
 }
 
-char *invocation_name = 0 ;
-
 int main(int argc, char *argv[])
 {
     char *pt ;

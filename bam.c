@@ -9,6 +9,8 @@
 
 int bam_is_be = 0, bam_verbose = 2;
 char *bam_flag2char_table = "pPuUrR12sfdqc\177\177\177tm";
+char *invocation_name = "samtools" ;
+
 
 /**************************
  * CIGAR related routines *
