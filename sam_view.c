@@ -40,7 +40,7 @@ static inline int __g_skip_aln(const bam_header_t *h, const bam1_t *b)
 	int l = (b->core.flag & BAM_FPROPER_PAIR) && b->core.isize ? abs(b->core.isize) : b->core.l_qseq ;
     int flags = b->core.flag ;
     if( (g_flag_on | g_flag_off) & ~0xffff ) {
-        uint8_t *s = bam_aux_get(b, "EF");
+        uint8_t *s = bam_aux_get(b, "FF");
         if( !s ) s = bam_aux_get(b, "XF");
         flags |= bam_aux2i(s) << 16 ;
     }
