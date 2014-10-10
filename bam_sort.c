@@ -559,13 +559,14 @@ int bam_sort(int argc, char *argv[], int vanilla)
 	size_t max_mem = 500000000;
 	int c, is_by_qname = 0, is_stdout = 0;
     char *fn_index = 0, *fn_cstat = 0, *fn_xstat = 0;
-    char *ep ;
-	while ((c = getopt(argc, argv, vanilla?"nowm:":"nowm:i:x:c:")) >= 0) {
+    char *ep, *allout = 0 ;
+	while ((c = getopt(argc, argv, vanilla?"nowm:":"nowm:O:i:x:c:")) >= 0) {
 		switch (c) {
         case 'i': fn_index = optarg; break;
         case 'x': fn_xstat = optarg; break;
         case 'c': fn_cstat = optarg; break;
 		case 'o': is_stdout = 1; break;
+        case 'O': allout = optarg ; break;
 		case 'n': is_by_qname = 1; break;
         case 'w': g_ignore_warts = 1; break;                  
         case 'm': max_mem = strtol(optarg, &ep, 10);
@@ -583,7 +584,20 @@ int bam_sort(int argc, char *argv[], int vanilla)
     if (optind + 2 > argc) goto usage ;
 
     struct bam_sink fpout;
-    if( is_stdout ) 
+
+    if( allout ) {
+        char *fnout = (char*)calloc(strlen(allout) + 20, 1);
+        fn_cstat = (char*)calloc(strlen(allout) + 20, 1);
+        fn_xstat = (char*)calloc(strlen(allout) + 20, 1);
+        fn_index = (char*)calloc(strlen(allout) + 20, 1);
+        sprintf(fnout, "%s.__bam", allout);
+        sprintf(fn_cstat, "%s.covstat", allout);
+        sprintf(fn_xstat, "%s.flagstatx", allout);
+        sprintf(fn_index, "%s.bam.bai", allout);
+        bam_sink_init_file(&fpout, fnout, 0);
+        free(fnout);
+    }
+    else if( is_stdout ) 
         bam_sink_init_file(&fpout, "-", 0);
     else {
         char *fnout = (char*)calloc(strlen(argv[optind+1]) + 20, 1);
@@ -623,6 +637,11 @@ int bam_sort(int argc, char *argv[], int vanilla)
         bam_index_save(idx, fp);
         fclose(fp) ;
     }
+    if( allout ) {
+        free(fn_cstat);
+        free(fn_xstat);
+        free(fn_index);
+    }
     bam_sink_close(&fpout);
     return 0;
 
@@ -632,6 +651,7 @@ usage:
     fprintf(stderr, "Options: -n       sort by read names\n");
     fprintf(stderr, "         -o       write output to stdout\n");
     if( !vanilla ) {
+        fprintf(stderr, "         -O STEM  write final output to STEM.{__bam,bam.bai,flagstatx,covstat}\n");
         fprintf(stderr, "         -i FILE  also write index to FILE\n");
         fprintf(stderr, "         -x FILE  also write flagstatx to FILE\n");
         fprintf(stderr, "         -c FILE  also write covstat to FILE\n");
