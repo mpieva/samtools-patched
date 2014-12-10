@@ -116,7 +116,8 @@ void bam_sink_init_file( struct bam_sink *s, const char* out, int flag )
 	else if (flag & MERGE_LEVEL1) s->fp = strcmp(out, "-")? bam_open(out, "w1") : bam_dopen(fileno(stdout), "w1");
 	else s->fp = strcmp(out, "-")? bam_open(out, "w") : bam_dopen(fileno(stdout), "w");
 	if (s->fp == 0) {
-		fprintf(stderr, "[%s] fail to create the output file.\n", __func__);
+		fprintf(stderr, "[%s] fail to create the output file \"%s\", flag %d, because %s.\n",
+                __func__, out, flag, strerror(errno));
 		exit(1);
 	}
 }
