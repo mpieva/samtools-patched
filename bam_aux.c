@@ -165,7 +165,7 @@ int bam_parse_region(bam_header_t *header, const char *str, int *ref_id, int *be
 int32_t bam_aux2i_d(const uint8_t *s, int32_t d)
 {
 	int type;
-	if (s == 0) return 0;
+	if (!s) return d;
 	type = *s++;
 	if (type == 'c') return (int32_t)*(int8_t*)s;
 	else if (type == 'C') return (int32_t)*(uint8_t*)s;

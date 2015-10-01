@@ -44,7 +44,7 @@ static inline int __g_skip_aln(const bam_header_t *h, const bam1_t *b)
         if( !s ) s = bam_aux_get(b, "XF");
         flags |= bam_aux2i(s) << 16 ;
     }
-    int z0 = bam_aux2i_d( bam_aux_get(b, "Z0"), INT_MAX );
+    int z0 = bam_aux2i_d( bam_aux_get(b, "Z0"), INT_MIN );
     int z1 = bam_aux2i_d( bam_aux_get(b, "Z1"), INT_MAX );
     int z2 = bam_aux2i_d( bam_aux_get(b, "Z2"), INT_MIN );
 
