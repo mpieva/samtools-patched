@@ -7,6 +7,7 @@
 #include <ctype.h>
 #include "sam_header.h"
 #include "sam.h"
+#include "bam_stat.h"
 #include "faidx.h"
 #include "kstring.h"
 #include "khash.h"
@@ -125,6 +126,58 @@ static int view_func(const bam1_t *b, void *data)
 {
 	if (!__g_skip_aln(((samfile_t*)data)->header, b)) {
 		samwrite((samfile_t*)data, b);
+        g_max_num_out-- ;
+    }
+	return !g_max_num_out ;
+}
+
+KHASH_MAP_INIT_STR(rg2out,  samfile_t*)
+
+typedef struct {
+	bam_header_t *header;
+	char *prefix;
+    char *suffix;
+    char *out_mode;
+    khash_t(rg2out) *h;
+} demux_data_t ;
+
+static void demux_destroy( demux_data_t *d ) {
+    khint_t k;
+	for (k = kh_begin(d->h); k != kh_end(d->h); ++k)
+        if(kh_exist(d->h,k)) {
+            free((void*)kh_key(d->h,k));
+            samclose( kh_val(d->h,k) ) ;
+        }
+    kh_destroy(rg2out, d->h);
+}
+
+// callback function for bam_fetch() that prints nonskipped records
+static int demux_func(const bam1_t *b, void *data)
+{
+    demux_data_t *d = data ;
+	if (!__g_skip_aln(d->header, b)) {
+        int ret;
+        const char *rg = get_rg(b);
+        khint_t k = kh_get(rg2out, d->h, rg);
+        if(k==kh_end(d->h)) {
+            k = kh_put(rg2out,d->h,strdup(rg),&ret) ;
+            char *nm = alloca( strlen(d->prefix) + strlen(rg) + strlen(d->suffix) + 1 ) ;
+            strcpy( nm, d->prefix ) ;
+            char *p = nm ;
+            while( *p ) ++p ;
+            while( *rg ) {
+                if ( *rg != '/' ) *p++ = *rg++ ;
+                else rg++ ;
+            }
+            *p = 0 ;
+            strcat( nm, d->suffix ) ;
+
+            if ((kh_val(d->h,k) = samopen(nm, d->out_mode, d->header)) == 0) {
+                fprintf(stderr, "[main_samview] fail to open \"%s\" for writing.\n", nm);
+                return -1;
+            }
+        }
+		samwrite(kh_val(d->h,k), b);
         g_max_num_out-- ;
     }
 	return !g_max_num_out ;
@@ -257,22 +310,42 @@ int main_samview(int argc, char *argv[])
 		in->header->text = tmp;
 		in->header->l_text = l;
 	}
-	if (!is_count && (out = samopen(fn_out? fn_out : "-", out_mode, in->header)) == 0) {
-		fprintf(stderr, "[main_samview] fail to open \"%s\" for writing.\n", fn_out? fn_out : "standard output");
-		ret = 1;
-		goto view_end;
-	}
+    count_func_data_t count_data = { in->header, &count };
+    demux_data_t demux_data = { in->header, 0, 0, out_mode, kh_init(rg2out) };
+
+    void *the_data = 0 ;
+    bam_fetch_f the_func = view_func ;
+
+    if( is_count ) {
+        the_data = &count_data ;
+        the_func = count_func ;
+    } else if (fn_out) {
+        char *p = fn_out ;
+        for( ; *p ; ++p ) {
+            if( p[0] == '{' && p[1] == '}' ) {
+                demux_data.prefix = fn_out ;
+                demux_data.suffix = p+2 ;
+                the_data = &demux_data ;
+                the_func = demux_func ;
+                *p = 0 ;
+            }
+        }
+    }
+    if( !the_data ) {
+        if ((out = samopen(fn_out? fn_out : "-", out_mode, in->header)) == 0) {
+            fprintf(stderr, "[main_samview] fail to open \"%s\" for writing.\n", fn_out? fn_out : "standard output");
+            ret = 1;
+            goto view_end;
+        }
+        the_data = out;
+    }
 	if (is_header_only) goto view_end; // no need to print alignments
+
 
 	if (argc == optind + 1) { // convert/print the entire file
 		bam1_t *b = bam_init1();
 		int r = 0;
-		while (count != g_max_num_out && (r = samread(in, b)) >= 0) { // read one alignment from `in'
-			if (!__g_skip_aln(in->header, b)) {
-				if (!is_count) samwrite(out, b); // write the alignment to `out'
-				count++;
-			}
-		}
+		while (g_max_num_out && (r = samread(in, b)) >= 0) the_func( b, the_data ) ;
 		if (r < -1) {
 			fprintf(stderr, "[main_samview] truncated file.\n");
 			ret = 1;
@@ -294,12 +367,7 @@ int main_samview(int argc, char *argv[])
 				fprintf(stderr, "[main_samview] region \"%s\" specifies an unknown reference name. Continue anyway.\n", argv[i]);
 				continue;
 			}
-			// fetch alignments
-			if (is_count) {
-				count_func_data_t count_data = { in->header, &count };
-				result = bam_fetch(in->x.bam, idx, tid, beg, end, &count_data, count_func);
-			} else
-				result = bam_fetch(in->x.bam, idx, tid, beg, end, out, view_func);
+            result = bam_fetch(in->x.bam, idx, tid, beg, end, the_data, the_func);
 			if (result < 0) {
 				fprintf(stderr, "[main_samview] retrieval of region \"%s\" failed due to truncated file or corrupt BAM index file\n", argv[i]);
 				ret = 1;
@@ -323,8 +391,8 @@ view_end:
 		kh_destroy(rg, g_rghash);
 	}
 	samclose(in);
-	if (!is_count)
-		samclose(out);
+    demux_destroy( &demux_data );
+	if (out) samclose(out);
 	return ret;
 }
 

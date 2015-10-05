@@ -37,7 +37,7 @@ void covstat_step( struct covstat_acc*, const char *rg, const bam_header_t*, bam
 void covstat_print( struct covstat_acc*, FILE*, bam_header_t* );
 void covstat_destroy( struct covstat_acc* );
 
-inline static const char *get_rg( bam1_t *b )
+inline static const char *get_rg( const bam1_t *b )
 {
     static char rg[2];
     rg[0]=rg[1]=0;
