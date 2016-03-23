@@ -346,7 +346,7 @@ int bam_merge(int argc, char *argv[], int vanilla)
 	if (optind >= argc) {
 		fprintf(stderr, "\n");
         if( vanilla ) fprintf(stderr, "Usage:   %s merge [-nru] [-h inh.sam] <out.bam> <in1.bam> <in2.bam> [...]\n\n", invocation_name);
-        else          fprintf(stderr, "Usage:   %s merge [-nru] [-o out.bam] [-h inh.sam] <in1.bam> <in2.bam> [...]\n\n", invocation_name);
+        else          fprintf(stderr, "Usage:   %s merge [-fnru] [-o out.bam] [-h inh.sam] <in1.bam> <in2.bam> [...]\n\n", invocation_name);
 		fprintf(stderr, "Options: -n       sort by read names\n");
 		fprintf(stderr, "         -r       attach RG tag (inferred from file names)\n");
 		fprintf(stderr, "         -u       uncompressed BAM output\n");
