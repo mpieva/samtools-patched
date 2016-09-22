@@ -128,7 +128,7 @@ inline void bam_put_header( struct bam_sink *s, bam_header_t *h )
     if(s->fp) {
         bam_header_write(s->fp, h);
         if(s->ia.idx)
-            index_acc_init_B(&s->ia, h->n_targets, bam_tell(s->fp) );
+            index_acc_init_B(&s->ia, h->n_targets, 0);
     }
 }
 
@@ -136,9 +136,18 @@ inline void bam_put_rec( struct bam_sink *s, bam1_t *b )
 {
     const char *rg = get_rg(b);
     if(s->fp) {
-        bam_write1_core(s->fp, &b->core, b->data_len, b->data);
-        if(s->ia.idx)
-            index_acc_step(&s->ia, b, bam_tell(s->fp)) ;
+        int64_t off;
+        bam_write1_core(s->fp, &b->core, b->data_len, b->data, &off);
+        if(s->ia.idx) {
+            if (off <= s->ia.last_off) {
+                fprintf(stderr, "[bam_put_rec] bug in BGZF/RAZF: %llx < %llx\n",
+                        (unsigned long long)off, (unsigned long long)s->ia.last_off);
+                exit(1);
+            }
+            s->ia.last_off = off;
+            index_acc_step_A(&s->ia,b) ;
+            s->ia.last_coor = b->core.pos;
+        }
     }
     if(s->fa.h) flagstatx_step(&s->fa, rg, b);
     if(s->ca.h && s->hdr) covstat_step(&s->ca, rg, s->hdr, b);

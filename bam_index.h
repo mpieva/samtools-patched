@@ -11,7 +11,8 @@ struct index_acc {
 
 void index_acc_init_A( struct index_acc *a ) ;
 void index_acc_init_B( struct index_acc *a, int32_t n_targets, int64_t off0 ) ;
-bam_index_t *index_acc_finish( struct index_acc*, int64_t ) ;
+void index_acc_step_A( struct index_acc *acc, bam1_t *b ) ;
 void index_acc_step( struct index_acc *acc, bam1_t *b, int64_t ) ;
+bam_index_t *index_acc_finish( struct index_acc*, int64_t ) ;
 
 void bam_index_save(const bam_index_t*, FILE*) ;

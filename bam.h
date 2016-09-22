@@ -437,7 +437,7 @@ extern "C" {
 	  @discussion This function is not affected by the machine
 	  endianness.
 	 */
-	int bam_write1_core(bamFile fp, const bam1_core_t *c, int data_len, uint8_t *data);
+	int bam_write1_core(bamFile fp, const bam1_core_t *c, int data_len, uint8_t *data, int64_t* off);
 
 	/*!
 	  @abstract   Write an alignment to BAM.

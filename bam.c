@@ -225,7 +225,7 @@ int bam_read1(bamFile fp, bam1_t *b)
 	return 4 + block_len;
 }
 
-inline int bam_write1_core(bamFile fp, const bam1_core_t *c, int data_len, uint8_t *data)
+inline int bam_write1_core(bamFile fp, const bam1_core_t *c, int data_len, uint8_t *data, int64_t *off)
 {
 	uint32_t x[8], block_len = data_len + BAM_CORE_SIZE, y;
 	int i;
@@ -239,6 +239,7 @@ inline int bam_write1_core(bamFile fp, const bam1_core_t *c, int data_len, uint8
 	x[6] = c->mpos;
 	x[7] = c->isize;
 	bgzf_flush_try(fp, 4 + block_len);
+    if(off) *off = bgzf_tell(fp);
 	if (bam_is_be) {
 		for (i = 0; i < 8; ++i) bam_swap_endian_4p(x + i);
 		y = block_len;
@@ -253,7 +254,7 @@ inline int bam_write1_core(bamFile fp, const bam1_core_t *c, int data_len, uint8
 
 int bam_write1(bamFile fp, const bam1_t *b)
 {
-	return bam_write1_core(fp, &b->core, b->data_len, b->data);
+	return bam_write1_core(fp, &b->core, b->data_len, b->data,0);
 }
 
 char *bam_format1_core(const bam_header_t *header, const bam1_t *b, int of)

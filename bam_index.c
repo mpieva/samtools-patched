@@ -182,7 +182,7 @@ bam_index_t *index_acc_finish( struct index_acc *acc, int64_t off )
 
 // Arguments are the accumulator, the current record, the position in
 // the file of the record *after* b.
-void index_acc_step_A( struct index_acc *acc, bam1_t *b, int64_t bam_told )
+void index_acc_step_A( struct index_acc *acc, bam1_t *b )
 {
 	bam1_core_t *c = &b->core;
     if (c->tid < 0) ++acc->n_no_coor;
@@ -214,15 +214,8 @@ void index_acc_step_A( struct index_acc *acc, bam1_t *b, int64_t bam_told )
         acc->save_tid = c->tid;
         if (c->tid < 0) return ;
     }
-    if (bam_told <= acc->last_off) {
-        fprintf(stderr, "[bam_index_core] bug in BGZF/RAZF: %llx < %llx\n",
-                (unsigned long long)bam_told, (unsigned long long)acc->last_off);
-        exit(1);
-    }
     if (c->flag & BAM_FUNMAP) ++acc->n_unmapped;
     else ++acc->n_mapped;
-    acc->last_off = bam_told;
-    acc->last_coor = b->core.pos;
 }
 
 void index_acc_step( struct index_acc *acc, bam1_t *b, int64_t off )
@@ -234,7 +227,17 @@ void index_acc_step( struct index_acc *acc, bam1_t *b, int64_t off )
         }
         ++acc->n_no_coor;
     }
-    else index_acc_step_A(acc,b,off) ;
+    else {
+        index_acc_step_A(acc,b) ;
+
+        if (off <= acc->last_off) {
+            fprintf(stderr, "[bam_index_core] bug in BGZF/RAZF: %llx < %llx\n",
+                    (unsigned long long)off, (unsigned long long)acc->last_off);
+            exit(1);
+        }
+        acc->last_off = off;
+        acc->last_coor = b->core.pos;
+    }
 }
 
 bam_index_t *bam_index_core(bamFile fp)
